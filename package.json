@@ -1,0 +1,44 @@
+{
+  "name": "scoreforge-windows",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ScoreForge for Windows MVP",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "validate:spec": "node scripts/validate-spec.mjs",
+    "desktop:start": "electron .",
+    "desktop:build": "npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "app.scoreforge.windows",
+    "productName": "ScoreForge for Windows",
+    "directories": {
+      "buildResources": "electron/assets"
+    },
+    "files": [
+      "out/**/*",
+      "app/**/*",
+      "public/**/*",
+      "electron/**/*",
+      "package.json",
+      "next.config.mjs"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
+  },
+  "dependencies": {
+    "next": "16.2.2",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "electron": "37.4.0",
+    "electron-builder": "26.0.12"
+  }
+}
