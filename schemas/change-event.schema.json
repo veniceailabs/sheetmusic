@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scoreforge.app/schemas/change-event.schema.json",
+  "title": "ScoreForge Change Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "occurredAt",
+    "actorId",
+    "objectType",
+    "objectId",
+    "operationType",
+    "revision",
+    "payload"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actorId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "projectId": {
+      "type": "string"
+    },
+    "objectType": {
+      "type": "string",
+      "enum": [
+        "score",
+        "score_version",
+        "bookmark",
+        "annotation_layer",
+        "annotation",
+        "setlist",
+        "setlist_item",
+        "media_asset",
+        "project",
+        "project_member",
+        "settings"
+      ]
+    },
+    "objectId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operationType": {
+      "type": "string",
+      "enum": [
+        "create",
+        "update",
+        "delete",
+        "reorder",
+        "import",
+        "restore"
+      ]
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "payload": {
+      "type": "object"
+    },
+    "conflictStrategy": {
+      "type": "string",
+      "enum": [
+        "preserve_both",
+        "manual_merge",
+        "last_writer_disallowed"
+      ]
+    }
+  }
+}
