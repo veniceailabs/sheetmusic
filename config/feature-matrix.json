@@ -1,0 +1,338 @@
+{
+  "product": "ScoreForge for Windows",
+  "sourceWhitePaperDate": "2026-04-03",
+  "statuses": [
+    "implemented",
+    "partial_hidden",
+    "deferred",
+    "rejected"
+  ],
+  "phases": [
+    "Phase 1",
+    "Phase 2",
+    "Phase 3",
+    "Phase 4",
+    "Phase 5",
+    "Phase 6"
+  ],
+  "features": [
+    {
+      "id": "FR-001",
+      "name": "Multi-format import",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "Import pipeline for PDF, JPEG/PNG, MusicXML/XML/MXL, TXT, DOCX-to-PDF conversion, audio, MIDI, and video references.",
+      "acceptanceCriteria": [
+        "Supported file types are validated and ingested into the local asset store.",
+        "Imported items appear in the library with correct type metadata."
+      ]
+    },
+    {
+      "id": "FR-002",
+      "name": "Bulk ingest",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "Folder import, multi-select picker, and watched-folder ingest jobs.",
+      "acceptanceCriteria": [
+        "A folder import creates one library item per supported file.",
+        "Duplicate detection prevents accidental double-ingest."
+      ]
+    },
+    {
+      "id": "FR-003",
+      "name": "Scanner pipeline",
+      "status": "deferred",
+      "phase": "Phase 2",
+      "implementationTarget": "Scan ingest with crop, deskew, grayscale cleanup, contrast boost, ordering, and PDF assembly.",
+      "acceptanceCriteria": [
+        "A multi-page scan can be assembled into a single score PDF.",
+        "Crop and deskew settings can be previewed before save."
+      ]
+    },
+    {
+      "id": "FR-004",
+      "name": "Cloud connectors",
+      "status": "deferred",
+      "phase": "Phase 4",
+      "implementationTarget": "OneDrive, Dropbox, Google Drive, SMB, and local-network import connectors.",
+      "acceptanceCriteria": [
+        "Authorized cloud sources can import supported documents.",
+        "Offline reconnection resumes interrupted imports."
+      ]
+    },
+    {
+      "id": "FR-005",
+      "name": "Publisher and source intake",
+      "status": "deferred",
+      "phase": "Phase 4",
+      "implementationTarget": "Secure partner-link imports and institution-managed repositories.",
+      "acceptanceCriteria": [
+        "Authenticated repository links can create verified import jobs."
+      ]
+    },
+    {
+      "id": "FR-006",
+      "name": "Public-domain browsing",
+      "status": "deferred",
+      "phase": "Phase 4",
+      "implementationTarget": "Optional public-domain catalog browsing.",
+      "acceptanceCriteria": [
+        "Users can browse and import from configured catalog sources."
+      ]
+    },
+    {
+      "id": "LIB-001",
+      "name": "Hierarchical library and metadata",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "Collections, tags, composers, genres, instruments, ensembles, seasons, difficulty, and custom fields.",
+      "acceptanceCriteria": [
+        "Scores can be organized by collections and tags.",
+        "Custom metadata fields persist through backup and restore."
+      ]
+    },
+    {
+      "id": "LIB-002",
+      "name": "Setlists and rehearsal programs",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "Ordered setlists, folders, smart collections, recents, and favorites.",
+      "acceptanceCriteria": [
+        "Users can create, reorder, and persist setlists.",
+        "Recent and favorite items update automatically."
+      ]
+    },
+    {
+      "id": "LIB-003",
+      "name": "Bookmarks and excerpts",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "Page and range bookmarks with excerpt-style behavior.",
+      "acceptanceCriteria": [
+        "Bookmarks open directly to the target page or range."
+      ]
+    },
+    {
+      "id": "LIB-004",
+      "name": "Version groups",
+      "status": "deferred",
+      "phase": "Phase 3",
+      "implementationTarget": "Multiple editions or edits grouped under one work identity.",
+      "acceptanceCriteria": [
+        "Users can switch between versions without losing annotations."
+      ]
+    },
+    {
+      "id": "LIB-005",
+      "name": "Fast global search",
+      "status": "deferred",
+      "phase": "Phase 3",
+      "implementationTarget": "Search across titles, composers, tags, notes, metadata, and extracted text.",
+      "acceptanceCriteria": [
+        "Global search returns relevant items from indexed metadata and text."
+      ]
+    },
+    {
+      "id": "VIEW-001",
+      "name": "Reading and display modes",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "Single-page, continuous, two-page landscape, split-screen, and external-display modes.",
+      "acceptanceCriteria": [
+        "Users can switch modes without losing current page context."
+      ]
+    },
+    {
+      "id": "VIEW-002",
+      "name": "Half-page turns",
+      "status": "deferred",
+      "phase": "Phase 2",
+      "implementationTarget": "Per-score or per-page half-page split line and page-turn behavior.",
+      "acceptanceCriteria": [
+        "Half-page navigation works via touch and foot pedal."
+      ]
+    },
+    {
+      "id": "VIEW-003",
+      "name": "Performance mode",
+      "status": "deferred",
+      "phase": "Phase 2",
+      "implementationTarget": "Reduced chrome and accidental-touch suppression.",
+      "acceptanceCriteria": [
+        "Non-essential controls are hidden and accidental taps are minimized."
+      ]
+    },
+    {
+      "id": "VIEW-004",
+      "name": "Viewer transforms and display effects",
+      "status": "deferred",
+      "phase": "Phase 2",
+      "implementationTarget": "Zoom, pan, crop, margin trim, rotation, sepia, and inverted night mode.",
+      "acceptanceCriteria": [
+        "Transform settings persist per score when configured."
+      ]
+    },
+    {
+      "id": "ANN-001",
+      "name": "Basic annotation tools",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "Pen, highlighter, eraser, lasso, text box, shape, stamp, freehand, measure rectangle, and color presets.",
+      "acceptanceCriteria": [
+        "Annotations are stored separately from the source document.",
+        "Stylus input is persisted and restored with page anchoring."
+      ]
+    },
+    {
+      "id": "ANN-002",
+      "name": "Annotation layers",
+      "status": "deferred",
+      "phase": "Phase 3",
+      "implementationTarget": "Layer create, duplicate, hide/show, copy, paste, lock, export, and privacy controls.",
+      "acceptanceCriteria": [
+        "Users can show or hide layers without deleting annotations."
+      ]
+    },
+    {
+      "id": "ANN-003",
+      "name": "Jumps and navigation shortcuts",
+      "status": "deferred",
+      "phase": "Phase 3",
+      "implementationTarget": "Bookmarks, jumps, codas, DS/DC, hyperlinks, and custom tap targets.",
+      "acceptanceCriteria": [
+        "Jump targets navigate predictably and persist across backup/restore."
+      ]
+    },
+    {
+      "id": "ANN-004",
+      "name": "PDF page editing",
+      "status": "deferred",
+      "phase": "Phase 2",
+      "implementationTarget": "Rearrange, duplicate, reorder, split, merge, rotate, crop, and delete PDF pages.",
+      "acceptanceCriteria": [
+        "Page edits create a new document revision without losing annotation bindings."
+      ]
+    },
+    {
+      "id": "ANN-005",
+      "name": "Excerpt and content copy workflows",
+      "status": "deferred",
+      "phase": "Phase 3",
+      "implementationTarget": "Page content copy/paste and excerpt creation.",
+      "acceptanceCriteria": [
+        "Users can create excerpts linked to the original work."
+      ]
+    },
+    {
+      "id": "MEDIA-001",
+      "name": "Media associations",
+      "status": "deferred",
+      "phase": "Phase 2",
+      "implementationTarget": "Associate audio tracks, MIDI files, metronome settings, and video references with scores or bookmarks.",
+      "acceptanceCriteria": [
+        "Media links persist through backup and restore."
+      ]
+    },
+    {
+      "id": "MEDIA-002",
+      "name": "Media synchronization",
+      "status": "deferred",
+      "phase": "Phase 3",
+      "implementationTarget": "Sync media playback to markers and page turns.",
+      "acceptanceCriteria": [
+        "Playback markers remain aligned after project reload."
+      ]
+    },
+    {
+      "id": "MEDIA-003",
+      "name": "Rehearsal utilities",
+      "status": "deferred",
+      "phase": "Phase 2",
+      "implementationTarget": "Tempo, loop, playback speed, pitch shift, rehearsal markers, metronome, tuner, and count-in.",
+      "acceptanceCriteria": [
+        "Metronome and rehearsal markers can be stored per score."
+      ]
+    },
+    {
+      "id": "MEDIA-004",
+      "name": "Bluetooth pedal support",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "Customizable pedal mappings with debounce logic.",
+      "acceptanceCriteria": [
+        "Pedal actions can be remapped and do not trigger duplicate turns during debounce."
+      ]
+    },
+    {
+      "id": "COLLAB-001",
+      "name": "Projects and permissions",
+      "status": "deferred",
+      "phase": "Phase 4",
+      "implementationTarget": "Shared projects, invite links, roles, and access controls.",
+      "acceptanceCriteria": [
+        "Project membership and roles determine edit permissions."
+      ]
+    },
+    {
+      "id": "COLLAB-002",
+      "name": "Shared and private layers",
+      "status": "deferred",
+      "phase": "Phase 4",
+      "implementationTarget": "Private and shared annotation-layer ownership.",
+      "acceptanceCriteria": [
+        "Private notes are not overwritten or exposed during sync."
+      ]
+    },
+    {
+      "id": "COLLAB-003",
+      "name": "Version history and audit logs",
+      "status": "deferred",
+      "phase": "Phase 4",
+      "implementationTarget": "Conflict detection, merge preview, revision history, and audit logs.",
+      "acceptanceCriteria": [
+        "Conflicting edits produce a merge or preservation workflow instead of silent overwrite."
+      ]
+    },
+    {
+      "id": "COLLAB-004",
+      "name": "Offline-first synchronization",
+      "status": "deferred",
+      "phase": "Phase 4",
+      "implementationTarget": "Queue score, metadata, annotation, bookmark, media, and project changes for sync.",
+      "acceptanceCriteria": [
+        "Offline edits are queued and synchronized after reconnection."
+      ]
+    },
+    {
+      "id": "BACKUP-001",
+      "name": "Encrypted backup archive",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "Single-file encrypted archive for documents, annotations, metadata, setlists, settings, and project references.",
+      "acceptanceCriteria": [
+        "Backup files contain a manifest and all referenced artifacts.",
+        "A fresh restore reproduces a working library."
+      ]
+    },
+    {
+      "id": "BACKUP-002",
+      "name": "Selective restore and recovery",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "Selective restore, full restore, autosave snapshots, deleted-item recovery, and schema migration wizard.",
+      "acceptanceCriteria": [
+        "Users can restore a single score or a full archive."
+      ]
+    },
+    {
+      "id": "WIN-001",
+      "name": "Windows-native deployment",
+      "status": "deferred",
+      "phase": "Phase 1",
+      "implementationTarget": "MSIX packaging, EXE bootstrapper fallback, desktop and Start menu entries, update rings, diagnostics export, and first-run setup.",
+      "acceptanceCriteria": [
+        "The signed installer creates the expected application entry points on Windows 11."
+      ]
+    }
+  ]
+}
