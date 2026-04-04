@@ -1,6 +1,8 @@
 const { app, BrowserWindow } = require("electron");
 const path = require("node:path");
 
+const REMOTE_URL = process.env.SCOREFORGE_WEB_URL || "https://scoreforge-windows.vercel.app";
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1440,
@@ -12,7 +14,7 @@ function createWindow() {
   });
 
   if (app.isPackaged) {
-    window.loadFile(path.join(__dirname, "..", "out", "index.html"));
+    window.loadURL(REMOTE_URL);
     return;
   }
 

@@ -19,7 +19,6 @@
       "buildResources": "electron/assets"
     },
     "files": [
-      "out/**/*",
       "app/**/*",
       "public/**/*",
       "electron/**/*",
