@@ -11,12 +11,19 @@ if (!fs.existsSync(outDir)) {
 const manifest = {
   version: 1,
   pages404: true,
+  caseSensitive: false,
   basePath: "",
   redirects: [],
   headers: [],
   dynamicRoutes: [],
   staticRoutes: ["/"],
   dataRoutes: [],
+  rewrites: {
+    beforeFiles: [],
+    afterFiles: [],
+    fallback: []
+  },
+  sortedPages: ["/"],
   rsc: {}
 };
 
