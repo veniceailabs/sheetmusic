@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { supabaseBrowser } from "../lib/supabase-browser.js";
 
-const STORAGE_KEY = "sheet-music-state-v1";
-const THEME_KEY = "sheet-music-theme-v1";
+const STORAGE_KEY = "sheet-music-state-v2";
+const THEME_KEY = "sheet-music-theme-v2";
 
 const INITIAL_STATE = {
   scores: [
@@ -16,9 +17,10 @@ const INITIAL_STATE = {
       notes: "Surface pen dynamics test piece.",
       createdAt: "2026-04-03T16:00:00.000Z",
       pdf: null,
+      audioTracks: [],
       bookmarks: [
-        { id: "bm-1", name: "Intro", startPage: 1, endPage: 1 },
-        { id: "bm-2", name: "Coda", startPage: 5, endPage: 5 }
+        { id: "bm-1", name: "Intro", startPage: 1, endPage: 1, kind: "page" },
+        { id: "bm-2", name: "Coda", startPage: 5, endPage: 5, kind: "item" }
       ]
     }
   ],
@@ -31,8 +33,14 @@ const INITIAL_STATE = {
   ],
   selectedScoreId: "score-1",
   selectedSetlistId: "setlist-1",
-  theme: "light"
+  selectedBookmarkId: null,
+  theme: "light",
+  displayMode: "single"
 };
+
+function uid(prefix) {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
 
 function downloadJson(filename, data) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -44,8 +52,13 @@ function downloadJson(filename, data) {
   URL.revokeObjectURL(url);
 }
 
-function uid(prefix) {
-  return `${prefix}-${crypto.randomUUID()}`;
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function HomePage() {
@@ -55,6 +68,13 @@ export default function HomePage() {
   const [performanceMode, setPerformanceMode] = useState(false);
   const [halfPageMode, setHalfPageMode] = useState(false);
   const [theme, setTheme] = useState("light");
+  const [displayMode, setDisplayMode] = useState("single");
+  const [syncStatus, setSyncStatus] = useState("loading");
+  const [session, setSession] = useState(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
   const [scoreForm, setScoreForm] = useState({
     title: "",
     composer: "",
@@ -62,48 +82,170 @@ export default function HomePage() {
     tags: "",
     notes: ""
   });
-  const [setlistName, setSetlistName] = useState("");
   const [bookmarkForm, setBookmarkForm] = useState({
     name: "",
     startPage: "1",
-    endPage: "1"
+    endPage: "1",
+    kind: "page"
   });
+  const [setlistName, setSetlistName] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
+
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      const parsed = JSON.parse(saved);
-      setState(parsed);
-      if (parsed?.theme) {
-        setTheme(parsed.theme);
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed?.state) {
+          setState(parsed.state);
+          if (parsed.preferences?.theme) {
+            setTheme(parsed.preferences.theme);
+          }
+          if (parsed.preferences?.displayMode) {
+            setDisplayMode(parsed.preferences.displayMode);
+          }
+        } else {
+          setState(parsed);
+          if (parsed?.theme) {
+            setTheme(parsed.theme);
+          }
+          if (parsed?.displayMode) {
+            setDisplayMode(parsed.displayMode);
+          }
+        }
+      } catch {
+        // Ignore malformed cache.
       }
     }
+
     const savedTheme = window.localStorage.getItem(THEME_KEY);
     if (savedTheme === "light" || savedTheme === "dark") {
       setTheme(savedTheme);
     }
-    setIsLoaded(true);
+
+    async function loadRemoteState() {
+      try {
+        const response = await fetch("/api/library");
+        if (!response.ok) {
+          throw new Error(`Remote library request failed: ${response.status}`);
+        }
+
+        const payload = await response.json();
+        if (!cancelled && payload?.state) {
+          setState((current) => ({
+            ...current,
+            ...payload.state,
+            theme: payload.state.theme ?? current.theme,
+            displayMode: payload.state.displayMode ?? current.displayMode
+          }));
+          setSyncStatus("synced");
+        } else if (!cancelled) {
+          setSyncStatus("local");
+        }
+      } catch {
+        if (!cancelled) {
+          setSyncStatus("offline");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoaded(true);
+        }
+      }
+    }
+
+    loadRemoteState();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    if (!isLoaded) {
+    if (!supabaseBrowser) {
+      setSyncStatus("offline");
       return;
     }
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, theme }));
-  }, [isLoaded, state, theme]);
+
+    let mounted = true;
+
+    supabaseBrowser.auth.getSession().then(({ data }) => {
+      if (mounted) {
+        setSession(data.session ?? null);
+      }
+    });
+
+    const {
+      data: { subscription }
+    } = supabaseBrowser.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   useEffect(() => {
     if (!isLoaded) {
       return;
     }
+
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...state,
+        theme,
+        displayMode
+      })
+    );
     window.localStorage.setItem(THEME_KEY, theme);
-    setState((current) => ({ ...current, theme }));
-    document.documentElement.dataset.theme = theme;
-  }, [isLoaded, theme]);
+  }, [isLoaded, state, theme, displayMode]);
+
+  useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/library", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            state: {
+              ...state,
+              theme,
+              displayMode
+            }
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error("Remote save failed");
+        }
+
+        setSyncStatus("synced");
+      } catch {
+        setSyncStatus("offline");
+      }
+    }, 700);
+
+    return () => window.clearTimeout(timer);
+  }, [isLoaded, state, theme, displayMode]);
 
   const selectedScore = state.scores.find((score) => score.id === state.selectedScoreId) ?? null;
   const selectedSetlist =
     state.setlists.find((setlist) => setlist.id === state.selectedSetlistId) ?? null;
+  const selectedBookmark =
+    selectedScore?.bookmarks.find((bookmark) => bookmark.id === state.selectedBookmarkId) ?? null;
 
   const filteredScores = useMemo(() => {
     const value = query.trim().toLowerCase();
@@ -112,15 +254,9 @@ export default function HomePage() {
     }
 
     return state.scores.filter((score) => {
-      const haystack = [
-        score.title,
-        score.composer,
-        score.notes,
-        ...(score.tags ?? [])
-      ]
+      const haystack = [score.title, score.composer, score.notes, ...(score.tags ?? [])]
         .join(" ")
         .toLowerCase();
-
       return haystack.includes(value);
     });
   }, [query, state.scores]);
@@ -128,9 +264,14 @@ export default function HomePage() {
   function addScore(event) {
     event.preventDefault();
 
+    const title = scoreForm.title.trim();
+    if (!title) {
+      return;
+    }
+
     const score = {
       id: uid("score"),
-      title: scoreForm.title.trim(),
+      title,
       composer: scoreForm.composer.trim(),
       pages: Number(scoreForm.pages) || 1,
       tags: scoreForm.tags
@@ -140,17 +281,15 @@ export default function HomePage() {
       notes: scoreForm.notes.trim(),
       createdAt: new Date().toISOString(),
       pdf: null,
+      audioTracks: [],
       bookmarks: []
     };
-
-    if (!score.title) {
-      return;
-    }
 
     setState((current) => ({
       ...current,
       scores: [score, ...current.scores],
-      selectedScoreId: score.id
+      selectedScoreId: score.id,
+      selectedBookmarkId: null
     }));
 
     setScoreForm({
@@ -162,20 +301,9 @@ export default function HomePage() {
     });
   }
 
-  function uploadPdf(event) {
-    const [file] = event.target.files ?? [];
-    if (!file) {
-      return;
-    }
-
-    if (file.type !== "application/pdf") {
-      event.target.value = "";
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+  async function addImportedFile(file) {
+    if (file.type === "application/pdf") {
+      const dataUrl = await readFileAsDataUrl(file);
       if (!dataUrl) {
         return;
       }
@@ -192,17 +320,118 @@ export default function HomePage() {
           name: file.name,
           dataUrl
         },
+        audioTracks: [],
         bookmarks: []
       };
 
       setState((current) => ({
         ...current,
         scores: [score, ...current.scores],
-        selectedScoreId: score.id
+        selectedScoreId: score.id,
+        selectedBookmarkId: null
       }));
-    };
-    reader.readAsDataURL(file);
+      return;
+    }
+
+    if (file.type.startsWith("audio/") && selectedScore) {
+      const dataUrl = await readFileAsDataUrl(file);
+      if (!dataUrl) {
+        return;
+      }
+
+      const track = {
+        id: uid("audio"),
+        name: file.name,
+        dataUrl
+      };
+
+      setState((current) => ({
+        ...current,
+        scores: current.scores.map((score) =>
+          score.id === selectedScore.id
+            ? { ...score, audioTracks: [...(score.audioTracks ?? []), track] }
+            : score
+        )
+      }));
+    }
+  }
+
+  function handleFileUpload(event) {
+    const files = Array.from(event.target.files ?? []);
+    for (const file of files) {
+      void addImportedFile(file);
+    }
     event.target.value = "";
+  }
+
+  function handleDrop(event) {
+    event.preventDefault();
+    for (const file of Array.from(event.dataTransfer.files ?? [])) {
+      void addImportedFile(file);
+    }
+  }
+
+  async function sendMagicLink(event) {
+    event.preventDefault();
+    setAuthError("");
+    setAuthMessage("");
+
+    if (!supabaseBrowser) {
+      setAuthError("Supabase auth is not configured.");
+      return;
+    }
+
+    if (!authEmail.trim()) {
+      setAuthError("Enter an email address.");
+      return;
+    }
+
+    setAuthBusy(true);
+    const { error } = await supabaseBrowser.auth.signInWithOtp({
+      email: authEmail.trim(),
+      options: {
+        emailRedirectTo: window.location.origin
+      }
+    });
+    setAuthBusy(false);
+
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+
+    setAuthMessage("Check your email for the login link.");
+  }
+
+  async function signInWithProvider(provider) {
+    setAuthError("");
+    setAuthMessage("");
+
+    if (!supabaseBrowser) {
+      setAuthError("Supabase auth is not configured.");
+      return;
+    }
+
+    setAuthBusy(true);
+    const { error } = await supabaseBrowser.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: window.location.origin
+      }
+    });
+    setAuthBusy(false);
+
+    if (error) {
+      setAuthError(error.message);
+    }
+  }
+
+  async function signOut() {
+    if (!supabaseBrowser) {
+      return;
+    }
+
+    await supabaseBrowser.auth.signOut();
   }
 
   function addSetlist(event) {
@@ -237,7 +466,8 @@ export default function HomePage() {
       id: uid("bookmark"),
       name: bookmarkForm.name.trim(),
       startPage: Number(bookmarkForm.startPage) || 1,
-      endPage: Number(bookmarkForm.endPage) || Number(bookmarkForm.startPage) || 1
+      endPage: Number(bookmarkForm.endPage) || Number(bookmarkForm.startPage) || 1,
+      kind: bookmarkForm.kind
     };
 
     setState((current) => ({
@@ -252,28 +482,52 @@ export default function HomePage() {
     setBookmarkForm({
       name: "",
       startPage: "1",
-      endPage: "1"
+      endPage: "1",
+      kind: "page"
     });
   }
 
-  function addSelectedScoreToSetlist() {
-    if (!selectedScore || !selectedSetlist) {
+  function addSelectionToSetlist() {
+    if (!selectedSetlist) {
+      return;
+    }
+
+    const entryId = selectedBookmark ? `bookmark:${selectedBookmark.id}` : selectedScore?.id;
+    if (!entryId) {
       return;
     }
 
     setState((current) => ({
       ...current,
       setlists: current.setlists.map((setlist) => {
-        if (setlist.id !== selectedSetlist.id || setlist.itemIds.includes(selectedScore.id)) {
+        if (setlist.id !== selectedSetlist.id || setlist.itemIds.includes(entryId)) {
           return setlist;
         }
 
         return {
           ...setlist,
-          itemIds: [...setlist.itemIds, selectedScore.id]
+          itemIds: [...setlist.itemIds, entryId]
         };
       })
     }));
+  }
+
+  function removeScore(scoreId) {
+    setState((current) => {
+      const nextScores = current.scores.filter((score) => score.id !== scoreId);
+      const nextSelectedScore = current.selectedScoreId === scoreId ? nextScores[0]?.id ?? null : current.selectedScoreId;
+
+      return {
+        ...current,
+        scores: nextScores,
+        selectedScoreId: nextSelectedScore,
+        selectedBookmarkId: null,
+        setlists: current.setlists.map((setlist) => ({
+          ...setlist,
+          itemIds: setlist.itemIds.filter((itemId) => itemId !== scoreId)
+        }))
+      };
+    });
   }
 
   function exportBackup() {
@@ -287,10 +541,7 @@ export default function HomePage() {
       library: {
         scoreCount: state.scores.length,
         setlistCount: state.setlists.length,
-        annotationCount: state.scores.reduce(
-          (total, score) => total + (score.bookmarks?.length ?? 0),
-          0
-        )
+        annotationCount: state.scores.reduce((total, score) => total + (score.bookmarks?.length ?? 0), 0)
       },
       data: state
     });
@@ -308,28 +559,25 @@ export default function HomePage() {
         const parsed = JSON.parse(reader.result);
         if (parsed?.data?.scores && parsed?.data?.setlists) {
           setState(parsed.data);
+        } else if (parsed?.scores && parsed?.setlists) {
+          setState(parsed);
         }
       } catch {
-        // Ignore malformed files in the MVP.
+        // Ignore malformed files.
       }
     };
     reader.readAsText(file);
     event.target.value = "";
   }
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
-
   return (
-    <main className={performanceMode ? "page performance" : "page"}>
+    <main className={performanceMode ? "page performance" : "page"} onDrop={handleDrop} onDragOver={(event) => event.preventDefault()}>
       <section className="hero">
         <div>
           <p className="eyebrow">Sheet Music</p>
           <h1>Touch-first sheet music control built for library, rehearsal, and performance.</h1>
           <p className="lede">
-            This MVP implements a local score library, searchable metadata, bookmarks, setlists,
-            backup export/import, and a performance workspace with half-page mode.
+            Local-first score management with Supabase sync, PDF and audio upload, setlists, bookmarks, and reader modes.
           </p>
         </div>
 
@@ -342,6 +590,41 @@ export default function HomePage() {
             <span>Setlists</span>
             <strong>{state.setlists.length}</strong>
           </div>
+          <div className="metric">
+            <span>Cloud</span>
+            <strong>{syncStatus}</strong>
+          </div>
+          <div className="authCard">
+            {session?.user ? (
+              <>
+                <div>
+                  <strong>{session.user.email ?? "Signed in"}</strong>
+                  <p className="lede">Supabase session active.</p>
+                </div>
+                  <button type="button" onClick={signOut}>Sign out</button>
+              </>
+            ) : (
+              <form className="stack" onSubmit={sendMagicLink}>
+                <h3>Sign in</h3>
+                <input
+                  type="email"
+                  value={authEmail}
+                  onChange={(event) => setAuthEmail(event.target.value)}
+                  placeholder="Email address"
+                />
+                <div className="authButtons">
+                  <button type="submit" disabled={authBusy}>
+                    Email link
+                  </button>
+                  <button type="button" onClick={() => signInWithProvider("google")} disabled={authBusy}>
+                    Google
+                  </button>
+                </div>
+                {authMessage ? <p className="successText">{authMessage}</p> : null}
+                {authError ? <p className="errorText">{authError}</p> : null}
+              </form>
+            )}
+          </div>
           <div className="toggles">
             <label>
               <input
@@ -350,6 +633,15 @@ export default function HomePage() {
                 onChange={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
               />
               Dark mode
+            </label>
+            <label>
+              <span>Reader mode</span>
+              <select value={displayMode} onChange={(event) => setDisplayMode(event.target.value)}>
+                <option value="single">Single page</option>
+                <option value="two-up">Two-up</option>
+                <option value="split">Split view</option>
+                <option value="continuous">Continuous</option>
+              </select>
             </label>
             <label>
               <input
@@ -375,8 +667,8 @@ export default function HomePage() {
               <input type="file" accept="application/json" onChange={importBackup} />
             </label>
             <label className="upload">
-              Upload PDF
-              <input type="file" accept="application/pdf" onChange={uploadPdf} />
+              Upload PDF / audio
+              <input type="file" accept="application/pdf,audio/*" onChange={handleFileUpload} />
             </label>
           </div>
         </div>
@@ -396,20 +688,26 @@ export default function HomePage() {
           <ul className="scoreList">
             {filteredScores.map((score) => (
               <li key={score.id}>
-                <button
-                  className={score.id === selectedScore?.id ? "scoreRow active" : "scoreRow"}
-                  onClick={() =>
-                    setState((current) => ({
-                      ...current,
-                      selectedScoreId: score.id
-                    }))
-                  }
-                >
-                  <span>{score.title}</span>
-                  <small>
-                    {score.composer || "Unknown composer"} · {score.pages} pages
-                  </small>
-                </button>
+                <div className="scoreItem">
+                  <button
+                    className={score.id === selectedScore?.id ? "scoreRow active" : "scoreRow"}
+                    onClick={() =>
+                      setState((current) => ({
+                        ...current,
+                        selectedScoreId: score.id,
+                        selectedBookmarkId: null
+                      }))
+                    }
+                  >
+                    <span>{score.title}</span>
+                    <small>
+                      {score.composer || "Unknown composer"} · {score.pages} pages
+                    </small>
+                  </button>
+                  <button type="button" className="scoreDelete" onClick={() => removeScore(score.id)}>
+                    Remove
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -454,20 +752,16 @@ export default function HomePage() {
               <h2>{selectedScore?.title ?? "Select a score"}</h2>
               <p>{selectedScore?.composer ?? "No score selected"}</p>
             </div>
-            <button onClick={addSelectedScoreToSetlist} disabled={!selectedScore || !selectedSetlist}>
+            <button onClick={addSelectionToSetlist} disabled={!selectedSetlist || (!selectedScore && !selectedBookmark)}>
               Add to setlist
             </button>
           </div>
 
           {selectedScore ? (
             <>
-              <div className={halfPageMode ? "viewerCanvas halfPage" : "viewerCanvas"}>
+              <div className={`viewerCanvas ${halfPageMode ? "halfPage" : ""} ${displayMode}`}>
                 {selectedScore.pdf?.dataUrl ? (
-                  <iframe
-                    className="pdfFrame"
-                    src={selectedScore.pdf.dataUrl}
-                    title={selectedScore.title}
-                  />
+                  <iframe className="pdfFrame" src={selectedScore.pdf.dataUrl} title={selectedScore.title} />
                 ) : (
                   <div className="pagePreview">
                     <span>Score preview</span>
@@ -487,11 +781,22 @@ export default function HomePage() {
                   <ul className="bookmarkList">
                     {selectedScore.bookmarks.map((bookmark) => (
                       <li key={bookmark.id}>
-                        <strong>{bookmark.name}</strong>
-                        <span>
-                          Pages {bookmark.startPage}
-                          {bookmark.endPage !== bookmark.startPage ? `-${bookmark.endPage}` : ""}
-                        </span>
+                        <button
+                          className={bookmark.id === selectedBookmark?.id ? "bookmarkButton active" : "bookmarkButton"}
+                          onClick={() =>
+                            setState((current) => ({
+                              ...current,
+                              selectedBookmarkId: bookmark.id
+                            }))
+                          }
+                        >
+                          <strong>{bookmark.name}</strong>
+                          <span>
+                            {bookmark.kind === "item" ? "Item bookmark" : "Page bookmark"} · Pages{" "}
+                            {bookmark.startPage}
+                            {bookmark.endPage !== bookmark.startPage ? `-${bookmark.endPage}` : ""}
+                          </span>
+                        </button>
                       </li>
                     ))}
                   </ul>
@@ -506,6 +811,15 @@ export default function HomePage() {
                     }
                     placeholder="Bookmark name"
                   />
+                  <select
+                    value={bookmarkForm.kind}
+                    onChange={(event) =>
+                      setBookmarkForm({ ...bookmarkForm, kind: event.target.value })
+                    }
+                  >
+                    <option value="page">Page bookmark</option>
+                    <option value="item">Item bookmark</option>
+                  </select>
                   <input
                     value={bookmarkForm.startPage}
                     onChange={(event) =>
@@ -526,6 +840,18 @@ export default function HomePage() {
                   />
                   <button type="submit">Save bookmark</button>
                 </form>
+              </div>
+
+              <div className="stack">
+                <h3>Audio tracks</h3>
+                <ul className="bookmarkList">
+                  {(selectedScore.audioTracks ?? []).map((track) => (
+                    <li key={track.id}>
+                      <strong>{track.name}</strong>
+                      <span>Attached audio</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </>
           ) : (
@@ -571,6 +897,24 @@ export default function HomePage() {
             <h3>{selectedSetlist?.name ?? "No setlist selected"}</h3>
             <ul className="bookmarkList">
               {(selectedSetlist?.itemIds ?? []).map((id) => {
+                if (id.startsWith("bookmark:")) {
+                  const bookmarkId = id.slice("bookmark:".length);
+                  const bookmark = state.scores
+                    .flatMap((entry) => entry.bookmarks)
+                    .find((entry) => entry.id === bookmarkId);
+
+                  if (!bookmark) {
+                    return null;
+                  }
+
+                  return (
+                    <li key={id}>
+                      <strong>{bookmark.name}</strong>
+                      <span>Item bookmark</span>
+                    </li>
+                  );
+                }
+
                 const score = state.scores.find((entry) => entry.id === id);
                 if (!score) {
                   return null;

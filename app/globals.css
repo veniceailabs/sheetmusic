@@ -85,6 +85,15 @@ textarea {
   padding: 0.85rem 1rem;
 }
 
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--text);
+  padding: 0.85rem 1rem;
+}
+
 .page {
   min-height: 100vh;
   padding: 2rem;
@@ -144,6 +153,25 @@ h1 {
   display: grid;
   gap: 1rem;
   align-content: start;
+}
+
+.authCard {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--panel-strong) 84%, transparent);
+  border: 1px solid var(--line);
+}
+
+.authButtons {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.authCard .lede {
+  margin-bottom: 0;
 }
 
 .metric {
@@ -239,6 +267,39 @@ h1 {
   border-color: color-mix(in srgb, var(--accent) 38%, transparent);
 }
 
+.scoreItem {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.scoreDelete {
+  justify-self: start;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--line);
+}
+
+.scoreDelete:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.bookmarkButton {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-strong) 88%, transparent);
+  color: var(--text);
+  border-radius: 18px;
+  padding: 0.9rem 1rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.bookmarkButton.active {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel-strong));
+}
+
 .stack {
   display: grid;
   gap: 0.7rem;
@@ -285,6 +346,14 @@ h1 {
   border: 0;
   border-radius: 18px;
   background: var(--panel-strong);
+}
+
+.successText {
+  color: #2c8a4a;
+}
+
+.errorText {
+  color: #b5473d;
 }
 
 .pagePreview span {
