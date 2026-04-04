@@ -1,8 +1,8 @@
 {
-  "name": "scoreforge-windows",
+  "name": "sheet-music",
   "version": "0.1.0",
   "private": true,
-  "description": "ScoreForge for Windows MVP",
+  "description": "Sheet Music MVP",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev",
@@ -14,8 +14,8 @@
     "desktop:build": "npm run build && electron-builder"
   },
   "build": {
-    "appId": "app.scoreforge.windows",
-    "productName": "ScoreForge for Windows",
+    "appId": "app.sheetmusic.windows",
+    "productName": "Sheet Music",
     "directories": {
       "buildResources": "electron/assets"
     },

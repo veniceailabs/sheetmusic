@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const STORAGE_KEY = "scoreforge-mvp-state-v1";
+const STORAGE_KEY = "sheet-music-state-v1";
+const THEME_KEY = "sheet-music-theme-v1";
 
 const INITIAL_STATE = {
   scores: [
@@ -14,6 +15,7 @@ const INITIAL_STATE = {
       tags: ["Piano", "Impressionist"],
       notes: "Surface pen dynamics test piece.",
       createdAt: "2026-04-03T16:00:00.000Z",
+      pdf: null,
       bookmarks: [
         { id: "bm-1", name: "Intro", startPage: 1, endPage: 1 },
         { id: "bm-2", name: "Coda", startPage: 5, endPage: 5 }
@@ -28,7 +30,8 @@ const INITIAL_STATE = {
     }
   ],
   selectedScoreId: "score-1",
-  selectedSetlistId: "setlist-1"
+  selectedSetlistId: "setlist-1",
+  theme: "light"
 };
 
 function downloadJson(filename, data) {
@@ -51,6 +54,7 @@ export default function HomePage() {
   const [query, setQuery] = useState("");
   const [performanceMode, setPerformanceMode] = useState(false);
   const [halfPageMode, setHalfPageMode] = useState(false);
+  const [theme, setTheme] = useState("light");
   const [scoreForm, setScoreForm] = useState({
     title: "",
     composer: "",
@@ -68,7 +72,15 @@ export default function HomePage() {
   useEffect(() => {
     const saved = window.localStorage.getItem(STORAGE_KEY);
     if (saved) {
-      setState(JSON.parse(saved));
+      const parsed = JSON.parse(saved);
+      setState(parsed);
+      if (parsed?.theme) {
+        setTheme(parsed.theme);
+      }
+    }
+    const savedTheme = window.localStorage.getItem(THEME_KEY);
+    if (savedTheme === "light" || savedTheme === "dark") {
+      setTheme(savedTheme);
     }
     setIsLoaded(true);
   }, []);
@@ -77,8 +89,17 @@ export default function HomePage() {
     if (!isLoaded) {
       return;
     }
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [isLoaded, state]);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, theme }));
+  }, [isLoaded, state, theme]);
+
+  useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+    window.localStorage.setItem(THEME_KEY, theme);
+    setState((current) => ({ ...current, theme }));
+    document.documentElement.dataset.theme = theme;
+  }, [isLoaded, theme]);
 
   const selectedScore = state.scores.find((score) => score.id === state.selectedScoreId) ?? null;
   const selectedSetlist =
@@ -118,6 +139,7 @@ export default function HomePage() {
         .filter(Boolean),
       notes: scoreForm.notes.trim(),
       createdAt: new Date().toISOString(),
+      pdf: null,
       bookmarks: []
     };
 
@@ -138,6 +160,49 @@ export default function HomePage() {
       tags: "",
       notes: ""
     });
+  }
+
+  function uploadPdf(event) {
+    const [file] = event.target.files ?? [];
+    if (!file) {
+      return;
+    }
+
+    if (file.type !== "application/pdf") {
+      event.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl) {
+        return;
+      }
+
+      const score = {
+        id: uid("score"),
+        title: file.name.replace(/\.pdf$/i, ""),
+        composer: "",
+        pages: 1,
+        tags: ["PDF"],
+        notes: `Uploaded PDF: ${file.name}`,
+        createdAt: new Date().toISOString(),
+        pdf: {
+          name: file.name,
+          dataUrl
+        },
+        bookmarks: []
+      };
+
+      setState((current) => ({
+        ...current,
+        scores: [score, ...current.scores],
+        selectedScoreId: score.id
+      }));
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
   }
 
   function addSetlist(event) {
@@ -212,11 +277,11 @@ export default function HomePage() {
   }
 
   function exportBackup() {
-    downloadJson("scoreforge-backup.json", {
+    downloadJson("sheet-music-backup.json", {
       formatVersion: "v1.0",
       createdAt: new Date().toISOString(),
       product: {
-        name: "ScoreForge for Windows MVP",
+        name: "Sheet Music MVP",
         appVersion: "0.1.0"
       },
       library: {
@@ -252,11 +317,15 @@ export default function HomePage() {
     event.target.value = "";
   }
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
   return (
     <main className={performanceMode ? "page performance" : "page"}>
       <section className="hero">
         <div>
-          <p className="eyebrow">ScoreForge for Windows</p>
+          <p className="eyebrow">Sheet Music</p>
           <h1>Touch-first sheet music control built for library, rehearsal, and performance.</h1>
           <p className="lede">
             This MVP implements a local score library, searchable metadata, bookmarks, setlists,
@@ -274,6 +343,14 @@ export default function HomePage() {
             <strong>{state.setlists.length}</strong>
           </div>
           <div className="toggles">
+            <label>
+              <input
+                type="checkbox"
+                checked={theme === "dark"}
+                onChange={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
+              />
+              Dark mode
+            </label>
             <label>
               <input
                 type="checkbox"
@@ -296,6 +373,10 @@ export default function HomePage() {
             <label className="upload">
               Import backup
               <input type="file" accept="application/json" onChange={importBackup} />
+            </label>
+            <label className="upload">
+              Upload PDF
+              <input type="file" accept="application/pdf" onChange={uploadPdf} />
             </label>
           </div>
         </div>
@@ -381,11 +462,19 @@ export default function HomePage() {
           {selectedScore ? (
             <>
               <div className={halfPageMode ? "viewerCanvas halfPage" : "viewerCanvas"}>
-                <div className="pagePreview">
-                  <span>Score preview</span>
-                  <strong>{selectedScore.title}</strong>
-                  <p>{selectedScore.notes || "No notes yet."}</p>
-                </div>
+                {selectedScore.pdf?.dataUrl ? (
+                  <iframe
+                    className="pdfFrame"
+                    src={selectedScore.pdf.dataUrl}
+                    title={selectedScore.title}
+                  />
+                ) : (
+                  <div className="pagePreview">
+                    <span>Score preview</span>
+                    <strong>{selectedScore.title}</strong>
+                    <p>{selectedScore.notes || "No notes yet."}</p>
+                  </div>
+                )}
                 <div className="pageMeta">
                   <span>{selectedScore.pages} pages</span>
                   <span>{selectedScore.tags.join(" · ") || "No tags"}</span>

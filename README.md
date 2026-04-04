@@ -1,6 +1,6 @@
-# ScoreForge for Windows
+# Sheet Music
 
-ScoreForge for Windows is a Windows-first digital sheet music platform designed around the April 3, 2026 white paper in `/Users/DRA/Downloads/windows_sheet_music_white_paper.pdf`.
+Sheet Music is a Windows-first digital sheet music platform designed around the April 3, 2026 white paper in `/Users/DRA/Downloads/windows_sheet_music_white_paper.pdf`.
 
 This repository currently establishes the delivery foundation for Phase 1 and Phase 2:
 

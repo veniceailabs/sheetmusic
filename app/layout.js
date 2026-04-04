@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "ScoreForge for Windows",
+  title: "Sheet Music",
   description: "Touch-first digital sheet music workspace"
 };
 

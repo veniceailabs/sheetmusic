@@ -1,7 +1,7 @@
 const { app, BrowserWindow } = require("electron");
 const path = require("node:path");
 
-const REMOTE_URL = process.env.SCOREFORGE_WEB_URL || "https://scoreforge-windows.vercel.app";
+const REMOTE_URL = process.env.SHEET_MUSIC_WEB_URL || "https://sheet-music.vercel.app";
 
 function createWindow() {
   const window = new BrowserWindow({
@@ -10,7 +10,7 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 760,
     backgroundColor: "#f4efe6",
-    title: "ScoreForge for Windows"
+    title: "Sheet Music"
   });
 
   if (app.isPackaged) {
