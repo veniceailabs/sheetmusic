@@ -1,45 +1,82 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "../lib/supabase-browser.js";
 
-const STORAGE_KEY = "sheet-music-state-v2";
-const THEME_KEY = "sheet-music-theme-v2";
+const STORAGE_KEY = "sheet-music-state-v3";
+const THEME_KEY = "sheet-music-theme-v3";
 
-const INITIAL_STATE = {
-  scores: [
-    {
-      id: "score-1",
-      title: "Clair de Lune",
-      composer: "Claude Debussy",
-      pages: 5,
-      tags: ["Piano", "Impressionist"],
-      notes: "Surface pen dynamics test piece.",
-      createdAt: "2026-04-03T16:00:00.000Z",
-      pdf: null,
-      audioTracks: [],
-      bookmarks: [
-        { id: "bm-1", name: "Intro", startPage: 1, endPage: 1, kind: "page" },
-        { id: "bm-2", name: "Coda", startPage: 5, endPage: 5, kind: "item" }
-      ]
-    }
-  ],
-  setlists: [
-    {
-      id: "setlist-1",
-      name: "Recital Warmup",
-      itemIds: ["score-1"]
-    }
-  ],
-  selectedScoreId: "score-1",
-  selectedSetlistId: "setlist-1",
+const DEFAULT_STATE = {
+  scores: [],
+  setlists: [],
+  selectedScoreId: null,
+  selectedSetlistId: null,
   selectedBookmarkId: null,
+  selectedAnnotationId: null,
+  activeMode: "reader",
   theme: "dark",
-  displayMode: "single"
+  displayMode: "single",
+  performanceMode: false,
+  halfPageMode: false,
+  sortBy: "recent",
+  libraryView: "all",
+  annotationTool: "pen",
+  annotationColor: "amber",
+  annotationThickness: "medium"
 };
+
+const MODE_OPTIONS = [
+  { id: "library", label: "Library", description: "Browse, search, and organize" },
+  { id: "reader", label: "Reader", description: "Score-first reading" },
+  { id: "annotation", label: "Annotation", description: "Pen, marks, and notes" },
+  { id: "setlists", label: "Setlists", description: "Programs and ordering" },
+  { id: "performance", label: "Performance", description: "Minimal chrome" }
+];
+
+const DISPLAY_OPTIONS = [
+  { value: "single", label: "Single page" },
+  { value: "two-up", label: "Two-up" },
+  { value: "split", label: "Split view" },
+  { value: "continuous", label: "Continuous" }
+];
+
+const SORT_OPTIONS = [
+  { value: "recent", label: "Recent" },
+  { value: "title", label: "Title" },
+  { value: "composer", label: "Composer" },
+  { value: "pages", label: "Pages" }
+];
+
+const ANNOTATION_TOOLS = [
+  { value: "pen", label: "Pen" },
+  { value: "highlighter", label: "Highlighter" },
+  { value: "eraser", label: "Eraser" },
+  { value: "text", label: "Text" },
+  { value: "shape", label: "Shape" },
+  { value: "stamp", label: "Stamp" }
+];
+
+const ANNOTATION_COLORS = [
+  { value: "amber", label: "Amber" },
+  { value: "blue", label: "Blue" },
+  { value: "green", label: "Green" },
+  { value: "rose", label: "Rose" },
+  { value: "slate", label: "Slate" }
+];
+
+const ANNOTATION_THICKNESSES = [
+  { value: "thin", label: "Thin" },
+  { value: "medium", label: "Medium" },
+  { value: "bold", label: "Bold" }
+];
 
 function uid(prefix) {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function clampPage(value, pages) {
+  const next = Number(value) || 1;
+  return Math.min(Math.max(next, 1), Math.max(Number(pages) || 1, 1));
 }
 
 function downloadJson(filename, data) {
@@ -61,14 +98,141 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function stemFromFilename(filename) {
+  return filename.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim();
+}
+
+function normalizeBookmark(bookmark) {
+  const startPage = clampPage(bookmark?.startPage ?? 1, bookmark?.endPage ?? 1);
+  const endPage = clampPage(bookmark?.endPage ?? startPage, startPage);
+
+  return {
+    id: bookmark?.id ?? uid("bookmark"),
+    name: bookmark?.name?.trim() || "Bookmark",
+    startPage,
+    endPage,
+    kind: bookmark?.kind === "item" ? "item" : "page"
+  };
+}
+
+function normalizeAnnotation(annotation) {
+  return {
+    id: annotation?.id ?? uid("annotation"),
+    tool: annotation?.tool ?? "pen",
+    page: clampPage(annotation?.page ?? 1, annotation?.page ?? 1),
+    title: annotation?.title?.trim() || "Annotation",
+    note: annotation?.note?.trim() || "",
+    color: annotation?.color ?? "amber",
+    thickness: annotation?.thickness ?? "medium",
+    createdAt: annotation?.createdAt ?? new Date().toISOString()
+  };
+}
+
+function normalizeScore(score) {
+  const pages = Math.max(Number(score?.pages) || 1, 1);
+  const source = score?.source
+    ? score.source
+    : score?.pdf?.dataUrl
+      ? {
+          kind: "pdf",
+          name: score.pdf.name ?? `${score?.title ?? "score"}.pdf`,
+          dataUrl: score.pdf.dataUrl
+        }
+      : null;
+
+  return {
+    id: score?.id ?? uid("score"),
+    title: score?.title?.trim() || "Untitled score",
+    composer: score?.composer?.trim() || "",
+    pages,
+    currentPage: clampPage(score?.currentPage ?? 1, pages),
+    tags: Array.isArray(score?.tags) ? score.tags : [],
+    notes: score?.notes?.trim?.() ?? score?.notes ?? "",
+    createdAt: score?.createdAt ?? new Date().toISOString(),
+    favorite: Boolean(score?.favorite),
+    source,
+    pdf: score?.pdf ?? null,
+    audioTracks: Array.isArray(score?.audioTracks) ? score.audioTracks : [],
+    bookmarks: Array.isArray(score?.bookmarks) ? score.bookmarks.map(normalizeBookmark) : [],
+    annotations: Array.isArray(score?.annotations) ? score.annotations.map(normalizeAnnotation) : [],
+    difficulty: score?.difficulty?.trim?.() ?? score?.difficulty ?? "",
+    instrumentation: score?.instrumentation?.trim?.() ?? score?.instrumentation ?? ""
+  };
+}
+
+function normalizeSetlist(setlist) {
+  return {
+    id: setlist?.id ?? uid("setlist"),
+    name: setlist?.name?.trim() || "Setlist",
+    notes: setlist?.notes?.trim?.() ?? setlist?.notes ?? "",
+    itemIds: Array.isArray(setlist?.itemIds) ? setlist.itemIds : []
+  };
+}
+
+function normalizeState(next) {
+  const scores = Array.isArray(next?.scores) ? next.scores.map(normalizeScore) : [];
+  const setlists = Array.isArray(next?.setlists) ? next.setlists.map(normalizeSetlist) : [];
+  const selectedScoreId = scores.some((score) => score.id === next?.selectedScoreId)
+    ? next.selectedScoreId
+    : scores[0]?.id ?? null;
+  const selectedSetlistId = setlists.some((setlist) => setlist.id === next?.selectedSetlistId)
+    ? next.selectedSetlistId
+    : setlists[0]?.id ?? null;
+  const selectedScore = scores.find((score) => score.id === selectedScoreId) ?? null;
+  const selectedBookmarkId =
+    selectedScore?.bookmarks.some((bookmark) => bookmark.id === next?.selectedBookmarkId)
+      ? next.selectedBookmarkId
+      : null;
+  const selectedAnnotationId =
+    selectedScore?.annotations.some((annotation) => annotation.id === next?.selectedAnnotationId)
+      ? next.selectedAnnotationId
+      : null;
+
+  return {
+    ...DEFAULT_STATE,
+    ...next,
+    scores,
+    setlists,
+    selectedScoreId,
+    selectedSetlistId,
+    selectedBookmarkId,
+    selectedAnnotationId
+  };
+}
+
+function applyScorePatch(state, scoreId, patch) {
+  return {
+    ...state,
+    scores: state.scores.map((score) => {
+      if (score.id !== scoreId) {
+        return score;
+      }
+
+      return normalizeScore({ ...score, ...patch });
+    })
+  };
+}
+
+function resolveSetlistItem(state, itemId) {
+  if (itemId.startsWith("bookmark:")) {
+    const bookmarkId = itemId.slice("bookmark:".length);
+    for (const score of state.scores) {
+      const bookmark = score.bookmarks.find((entry) => entry.id === bookmarkId);
+      if (bookmark) {
+        return { type: "bookmark", score, bookmark };
+      }
+    }
+    return null;
+  }
+
+  const score = state.scores.find((entry) => entry.id === itemId) ?? null;
+  return score ? { type: "score", score } : null;
+}
+
 export default function HomePage() {
-  const [state, setState] = useState(INITIAL_STATE);
+  const [state, setState] = useState(DEFAULT_STATE);
   const [isLoaded, setIsLoaded] = useState(false);
   const [query, setQuery] = useState("");
-  const [performanceMode, setPerformanceMode] = useState(false);
-  const [halfPageMode, setHalfPageMode] = useState(false);
-  const [theme, setTheme] = useState("dark");
-  const [displayMode, setDisplayMode] = useState("single");
   const [syncStatus, setSyncStatus] = useState("loading");
   const [session, setSession] = useState(null);
   const [authEmail, setAuthEmail] = useState("");
@@ -80,7 +244,9 @@ export default function HomePage() {
     composer: "",
     pages: "1",
     tags: "",
-    notes: ""
+    notes: "",
+    difficulty: "",
+    instrumentation: ""
   });
   const [bookmarkForm, setBookmarkForm] = useState({
     name: "",
@@ -88,7 +254,19 @@ export default function HomePage() {
     endPage: "1",
     kind: "page"
   });
-  const [setlistName, setSetlistName] = useState("");
+  const [setlistForm, setSetlistForm] = useState({
+    name: "",
+    notes: ""
+  });
+  const [annotationForm, setAnnotationForm] = useState({
+    title: "",
+    note: "",
+    page: "1"
+  });
+
+  const pdfImportRef = useRef(null);
+  const backupImportRef = useRef(null);
+  const audioImportRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,22 +275,9 @@ export default function HomePage() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed?.state) {
-          setState(parsed.state);
-          if (parsed.preferences?.theme) {
-            setTheme(parsed.preferences.theme);
-          }
-          if (parsed.preferences?.displayMode) {
-            setDisplayMode(parsed.preferences.displayMode);
-          }
-        } else {
-          setState(parsed);
-          if (parsed?.theme) {
-            setTheme(parsed.theme);
-          }
-          if (parsed?.displayMode) {
-            setDisplayMode(parsed.displayMode);
-          }
+        setState(normalizeState(parsed?.state ?? parsed));
+        if (parsed?.preferences?.theme) {
+          setState((current) => ({ ...current, theme: parsed.preferences.theme }));
         }
       } catch {
         // Ignore malformed cache.
@@ -121,9 +286,9 @@ export default function HomePage() {
 
     const savedTheme = window.localStorage.getItem(THEME_KEY);
     if (savedTheme === "light" || savedTheme === "dark") {
-      setTheme(savedTheme);
+      setState((current) => ({ ...current, theme: savedTheme }));
     } else {
-      setTheme("dark");
+      setState((current) => ({ ...current, theme: "dark" }));
     }
 
     async function loadRemoteState() {
@@ -135,12 +300,22 @@ export default function HomePage() {
 
         const payload = await response.json();
         if (!cancelled && payload?.state) {
-          setState((current) => ({
-            ...current,
-            ...payload.state,
-            theme: payload.state.theme ?? current.theme,
-            displayMode: payload.state.displayMode ?? current.displayMode
-          }));
+          setState((current) =>
+            normalizeState({
+              ...current,
+              ...payload.state,
+              theme: payload.state.theme ?? current.theme,
+              displayMode: payload.state.displayMode ?? current.displayMode,
+              performanceMode: payload.state.performanceMode ?? current.performanceMode,
+              halfPageMode: payload.state.halfPageMode ?? current.halfPageMode,
+              activeMode: payload.state.activeMode ?? current.activeMode,
+              sortBy: payload.state.sortBy ?? current.sortBy,
+              libraryView: payload.state.libraryView ?? current.libraryView,
+              annotationTool: payload.state.annotationTool ?? current.annotationTool,
+              annotationColor: payload.state.annotationColor ?? current.annotationColor,
+              annotationThickness: payload.state.annotationThickness ?? current.annotationThickness
+            })
+          );
           setSyncStatus("synced");
         } else if (!cancelled) {
           setSyncStatus("local");
@@ -190,8 +365,8 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    document.documentElement.dataset.theme = state.theme;
+  }, [state.theme]);
 
   useEffect(() => {
     if (!isLoaded) {
@@ -201,13 +376,11 @@ export default function HomePage() {
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        ...state,
-        theme,
-        displayMode
+        ...state
       })
     );
-    window.localStorage.setItem(THEME_KEY, theme);
-  }, [isLoaded, state, theme, displayMode]);
+    window.localStorage.setItem(THEME_KEY, state.theme);
+  }, [isLoaded, state]);
 
   useEffect(() => {
     if (!isLoaded) {
@@ -222,11 +395,7 @@ export default function HomePage() {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            state: {
-              ...state,
-              theme,
-              displayMode
-            }
+            state
           })
         });
 
@@ -241,27 +410,94 @@ export default function HomePage() {
     }, 700);
 
     return () => window.clearTimeout(timer);
-  }, [isLoaded, state, theme, displayMode]);
+  }, [isLoaded, state]);
 
   const selectedScore = state.scores.find((score) => score.id === state.selectedScoreId) ?? null;
   const selectedSetlist =
     state.setlists.find((setlist) => setlist.id === state.selectedSetlistId) ?? null;
   const selectedBookmark =
     selectedScore?.bookmarks.find((bookmark) => bookmark.id === state.selectedBookmarkId) ?? null;
+  const selectedAnnotation =
+    selectedScore?.annotations.find((annotation) => annotation.id === state.selectedAnnotationId) ??
+    null;
 
   const filteredScores = useMemo(() => {
     const value = query.trim().toLowerCase();
-    if (!value) {
-      return state.scores;
+    let scores = state.scores;
+
+    if (state.libraryView === "favorites") {
+      scores = scores.filter((score) => score.favorite);
     }
 
-    return state.scores.filter((score) => {
-      const haystack = [score.title, score.composer, score.notes, ...(score.tags ?? [])]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(value);
+    if (value) {
+      scores = scores.filter((score) => {
+        const haystack = [
+          score.title,
+          score.composer,
+          score.notes,
+          score.instrumentation,
+          score.difficulty,
+          ...(score.tags ?? [])
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(value);
+      });
+    }
+
+    const sorted = [...scores];
+    sorted.sort((a, b) => {
+      switch (state.sortBy) {
+        case "title":
+          return a.title.localeCompare(b.title);
+        case "composer":
+          return a.composer.localeCompare(b.composer);
+        case "pages":
+          return a.pages - b.pages;
+        default:
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
     });
-  }, [query, state.scores]);
+
+    return sorted;
+  }, [query, state.libraryView, state.sortBy, state.scores]);
+
+  function updateScore(scoreId, patch) {
+    setState((current) => applyScorePatch(current, scoreId, patch));
+  }
+
+  function openScore(scoreId, nextMode = "reader") {
+    setState((current) => ({
+      ...current,
+      selectedScoreId: scoreId,
+      selectedBookmarkId: null,
+      selectedAnnotationId: null,
+      activeMode: nextMode
+    }));
+  }
+
+  function jumpToPage(scoreId, page) {
+    updateScore(scoreId, { currentPage: clampPage(page, selectedScore?.pages ?? 1) });
+  }
+
+  function turnPage(direction) {
+    if (!selectedScore) {
+      return;
+    }
+
+    const delta = direction > 0 ? 1 : -1;
+    const nextPage = clampPage(selectedScore.currentPage + delta, selectedScore.pages);
+    updateScore(selectedScore.id, { currentPage: nextPage });
+  }
+
+  function toggleFavorite(scoreId) {
+    const score = state.scores.find((entry) => entry.id === scoreId);
+    if (!score) {
+      return;
+    }
+
+    updateScore(scoreId, { favorite: !score.favorite });
+  }
 
   function addScore(event) {
     event.preventDefault();
@@ -271,7 +507,7 @@ export default function HomePage() {
       return;
     }
 
-    const score = {
+    const score = normalizeScore({
       id: uid("score"),
       title,
       composer: scoreForm.composer.trim(),
@@ -281,17 +517,23 @@ export default function HomePage() {
         .map((item) => item.trim())
         .filter(Boolean),
       notes: scoreForm.notes.trim(),
+      difficulty: scoreForm.difficulty.trim(),
+      instrumentation: scoreForm.instrumentation.trim(),
       createdAt: new Date().toISOString(),
-      pdf: null,
+      favorite: false,
+      source: null,
       audioTracks: [],
-      bookmarks: []
-    };
+      bookmarks: [],
+      annotations: []
+    });
 
     setState((current) => ({
       ...current,
       scores: [score, ...current.scores],
       selectedScoreId: score.id,
-      selectedBookmarkId: null
+      selectedBookmarkId: null,
+      selectedAnnotationId: null,
+      activeMode: "reader"
     }));
 
     setScoreForm({
@@ -299,43 +541,55 @@ export default function HomePage() {
       composer: "",
       pages: "1",
       tags: "",
-      notes: ""
+      notes: "",
+      difficulty: "",
+      instrumentation: ""
     });
   }
 
-  async function addImportedFile(file) {
-    if (file.type === "application/pdf") {
+  async function ingestFile(file) {
+    const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    const isImage = file.type.startsWith("image/");
+    const isMusicXml = /(\.xml|\.mxl)$/i.test(file.name) || file.type.includes("xml");
+    const isAudio = file.type.startsWith("audio/");
+
+    if (isPdf || isImage || isMusicXml) {
       const dataUrl = await readFileAsDataUrl(file);
       if (!dataUrl) {
         return;
       }
 
-      const score = {
+      const sourceKind = isPdf ? "pdf" : isImage ? "image" : "musicxml";
+      const nextScore = normalizeScore({
         id: uid("score"),
-        title: file.name.replace(/\.pdf$/i, ""),
+        title: stemFromFilename(file.name),
         composer: "",
         pages: 1,
-        tags: ["PDF"],
-        notes: `Uploaded PDF: ${file.name}`,
+        tags: [sourceKind === "pdf" ? "PDF" : sourceKind === "image" ? "Image" : "MusicXML"],
+        notes: `Imported ${sourceKind.toUpperCase()} file: ${file.name}`,
         createdAt: new Date().toISOString(),
-        pdf: {
+        source: {
+          kind: sourceKind,
           name: file.name,
           dataUrl
         },
         audioTracks: [],
-        bookmarks: []
-      };
+        bookmarks: [],
+        annotations: []
+      });
 
       setState((current) => ({
         ...current,
-        scores: [score, ...current.scores],
-        selectedScoreId: score.id,
-        selectedBookmarkId: null
+        scores: [nextScore, ...current.scores],
+        selectedScoreId: nextScore.id,
+        selectedBookmarkId: null,
+        selectedAnnotationId: null,
+        activeMode: "reader"
       }));
       return;
     }
 
-    if (file.type.startsWith("audio/") && selectedScore) {
+    if (isAudio && selectedScore) {
       const dataUrl = await readFileAsDataUrl(file);
       if (!dataUrl) {
         return;
@@ -347,21 +601,16 @@ export default function HomePage() {
         dataUrl
       };
 
-      setState((current) => ({
-        ...current,
-        scores: current.scores.map((score) =>
-          score.id === selectedScore.id
-            ? { ...score, audioTracks: [...(score.audioTracks ?? []), track] }
-            : score
-        )
-      }));
+      updateScore(selectedScore.id, {
+        audioTracks: [...selectedScore.audioTracks, track]
+      });
     }
   }
 
   function handleFileUpload(event) {
     const files = Array.from(event.target.files ?? []);
     for (const file of files) {
-      void addImportedFile(file);
+      void ingestFile(file);
     }
     event.target.value = "";
   }
@@ -369,7 +618,7 @@ export default function HomePage() {
   function handleDrop(event) {
     event.preventDefault();
     for (const file of Array.from(event.dataTransfer.files ?? [])) {
-      void addImportedFile(file);
+      void ingestFile(file);
     }
   }
 
@@ -436,56 +685,61 @@ export default function HomePage() {
     await supabaseBrowser.auth.signOut();
   }
 
-  function addSetlist(event) {
+  function createSetlist(event) {
     event.preventDefault();
-    const name = setlistName.trim();
+    const name = setlistForm.name.trim();
     if (!name) {
       return;
     }
 
-    const next = {
+    const next = normalizeSetlist({
       id: uid("setlist"),
       name,
+      notes: setlistForm.notes.trim(),
       itemIds: []
-    };
+    });
 
     setState((current) => ({
       ...current,
       setlists: [next, ...current.setlists],
-      selectedSetlistId: next.id
+      selectedSetlistId: next.id,
+      activeMode: "setlists"
     }));
 
-    setSetlistName("");
+    setSetlistForm({
+      name: "",
+      notes: ""
+    });
   }
 
-  function addBookmark(event) {
-    event.preventDefault();
-    if (!selectedScore || !bookmarkForm.name.trim()) {
+  function duplicateSetlist(setlistId) {
+    const source = state.setlists.find((setlist) => setlist.id === setlistId);
+    if (!source) {
       return;
     }
 
-    const bookmark = {
-      id: uid("bookmark"),
-      name: bookmarkForm.name.trim(),
-      startPage: Number(bookmarkForm.startPage) || 1,
-      endPage: Number(bookmarkForm.endPage) || Number(bookmarkForm.startPage) || 1,
-      kind: bookmarkForm.kind
-    };
+    const duplicate = normalizeSetlist({
+      id: uid("setlist"),
+      name: `${source.name} copy`,
+      notes: source.notes,
+      itemIds: [...source.itemIds]
+    });
 
     setState((current) => ({
       ...current,
-      scores: current.scores.map((score) =>
-        score.id === selectedScore.id
-          ? { ...score, bookmarks: [...score.bookmarks, bookmark] }
-          : score
-      )
+      setlists: [duplicate, ...current.setlists],
+      selectedSetlistId: duplicate.id
     }));
+  }
 
-    setBookmarkForm({
-      name: "",
-      startPage: "1",
-      endPage: "1",
-      kind: "page"
+  function removeSetlist(setlistId) {
+    setState((current) => {
+      const nextSetlists = current.setlists.filter((setlist) => setlist.id !== setlistId);
+      return {
+        ...current,
+        setlists: nextSetlists,
+        selectedSetlistId: nextSetlists[0]?.id ?? null
+      };
     });
   }
 
@@ -514,36 +768,251 @@ export default function HomePage() {
     }));
   }
 
-  function removeScore(scoreId) {
-    setState((current) => {
-      const nextScores = current.scores.filter((score) => score.id !== scoreId);
-      const nextSelectedScore = current.selectedScoreId === scoreId ? nextScores[0]?.id ?? null : current.selectedScoreId;
+  function moveSetlistItem(itemId, direction) {
+    if (!selectedSetlist) {
+      return;
+    }
 
-      return {
-        ...current,
-        scores: nextScores,
-        selectedScoreId: nextSelectedScore,
-        selectedBookmarkId: null,
-        setlists: current.setlists.map((setlist) => ({
+    setState((current) => ({
+      ...current,
+      setlists: current.setlists.map((setlist) => {
+        if (setlist.id !== selectedSetlist.id) {
+          return setlist;
+        }
+
+        const index = setlist.itemIds.indexOf(itemId);
+        const nextIndex = index + direction;
+        if (index < 0 || nextIndex < 0 || nextIndex >= setlist.itemIds.length) {
+          return setlist;
+        }
+
+        const itemIds = [...setlist.itemIds];
+        const [moved] = itemIds.splice(index, 1);
+        itemIds.splice(nextIndex, 0, moved);
+        return {
           ...setlist,
-          itemIds: setlist.itemIds.filter((itemId) => itemId !== scoreId)
-        }))
-      };
+          itemIds
+        };
+      })
+    }));
+  }
+
+  function removeSetlistItem(itemId) {
+    if (!selectedSetlist) {
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      setlists: current.setlists.map((setlist) =>
+        setlist.id === selectedSetlist.id
+          ? {
+              ...setlist,
+              itemIds: setlist.itemIds.filter((entry) => entry !== itemId)
+            }
+          : setlist
+      )
+    }));
+  }
+
+  function openSetlistItem(itemId) {
+    const resolved = resolveSetlistItem(state, itemId);
+    if (!resolved) {
+      return;
+    }
+
+    if (resolved.type === "bookmark") {
+      setState((current) => ({
+        ...current,
+        selectedScoreId: resolved.score.id,
+        selectedBookmarkId: resolved.bookmark.id,
+        selectedAnnotationId: null,
+        activeMode: "reader"
+      }));
+      updateScore(resolved.score.id, { currentPage: resolved.bookmark.startPage });
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      selectedScoreId: resolved.score.id,
+      selectedBookmarkId: null,
+      selectedAnnotationId: null,
+      activeMode: "reader"
+    }));
+  }
+
+  function startPerformanceFromSetlist(setlistId) {
+    const setlist = state.setlists.find((entry) => entry.id === setlistId);
+    if (!setlist) {
+      return;
+    }
+
+    const firstResolved = setlist.itemIds.map((itemId) => resolveSetlistItem(state, itemId)).find(Boolean);
+    if (!firstResolved) {
+      setState((current) => ({
+        ...current,
+        selectedSetlistId: setlistId,
+        activeMode: "performance",
+        performanceMode: true
+      }));
+      return;
+    }
+
+    if (firstResolved.type === "bookmark") {
+      setState((current) => ({
+        ...current,
+        selectedSetlistId: setlistId,
+        selectedScoreId: firstResolved.score.id,
+        selectedBookmarkId: firstResolved.bookmark.id,
+        selectedAnnotationId: null,
+        activeMode: "performance",
+        performanceMode: true
+      }));
+      updateScore(firstResolved.score.id, { currentPage: firstResolved.bookmark.startPage });
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      selectedSetlistId: setlistId,
+      selectedScoreId: firstResolved.score.id,
+      selectedBookmarkId: null,
+      selectedAnnotationId: null,
+      activeMode: "performance",
+      performanceMode: true
+    }));
+  }
+
+  function addBookmark(event) {
+    event.preventDefault();
+    if (!selectedScore || !bookmarkForm.name.trim()) {
+      return;
+    }
+
+    const bookmark = normalizeBookmark({
+      id: uid("bookmark"),
+      name: bookmarkForm.name.trim(),
+      startPage: Number(bookmarkForm.startPage) || selectedScore.currentPage || 1,
+      endPage: Number(bookmarkForm.endPage) || Number(bookmarkForm.startPage) || selectedScore.currentPage || 1,
+      kind: bookmarkForm.kind
     });
+
+    updateScore(selectedScore.id, {
+      bookmarks: [...selectedScore.bookmarks, bookmark]
+    });
+
+    setState((current) => ({
+      ...current,
+      selectedBookmarkId: bookmark.id
+    }));
+
+    setBookmarkForm({
+      name: "",
+      startPage: String(selectedScore.currentPage || 1),
+      endPage: String(selectedScore.currentPage || 1),
+      kind: "page"
+    });
+  }
+
+  function removeBookmark(bookmarkId) {
+    if (!selectedScore) {
+      return;
+    }
+
+    updateScore(selectedScore.id, {
+      bookmarks: selectedScore.bookmarks.filter((bookmark) => bookmark.id !== bookmarkId)
+    });
+
+    setState((current) => ({
+      ...current,
+      selectedBookmarkId: current.selectedBookmarkId === bookmarkId ? null : current.selectedBookmarkId
+    }));
+  }
+
+  function jumpToBookmark(bookmark) {
+    if (!selectedScore) {
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      selectedBookmarkId: bookmark.id,
+      selectedAnnotationId: null,
+      activeMode: "reader"
+    }));
+    updateScore(selectedScore.id, { currentPage: bookmark.startPage });
+  }
+
+  function addAnnotation(event) {
+    event.preventDefault();
+    if (!selectedScore) {
+      return;
+    }
+
+    const annotation = normalizeAnnotation({
+      id: uid("annotation"),
+      tool: state.annotationTool,
+      page: Number(annotationForm.page) || selectedScore.currentPage || 1,
+      title: annotationForm.title.trim() || `${state.annotationTool} mark`,
+      note: annotationForm.note.trim(),
+      color: state.annotationColor,
+      thickness: state.annotationThickness
+    });
+
+    updateScore(selectedScore.id, {
+      annotations: [...selectedScore.annotations, annotation]
+    });
+
+    setState((current) => ({
+      ...current,
+      selectedAnnotationId: annotation.id,
+      activeMode: "annotation"
+    }));
+
+    setAnnotationForm({
+      title: "",
+      note: "",
+      page: String(selectedScore.currentPage || 1)
+    });
+  }
+
+  function removeAnnotation(annotationId) {
+    if (!selectedScore) {
+      return;
+    }
+
+    updateScore(selectedScore.id, {
+      annotations: selectedScore.annotations.filter((annotation) => annotation.id !== annotationId)
+    });
+
+    setState((current) => ({
+      ...current,
+      selectedAnnotationId: current.selectedAnnotationId === annotationId ? null : current.selectedAnnotationId
+    }));
+  }
+
+  function toggleMode(mode) {
+    setState((current) => ({
+      ...current,
+      activeMode: mode,
+      performanceMode: mode === "performance" ? true : current.performanceMode
+    }));
   }
 
   function exportBackup() {
     downloadJson("sheet-music-backup.json", {
-      formatVersion: "v1.0",
+      formatVersion: "v2.0",
       createdAt: new Date().toISOString(),
       product: {
-        name: "Sheet Music MVP",
-        appVersion: "0.1.0"
+        name: "Sheet Music",
+        appVersion: "0.2.0"
       },
       library: {
         scoreCount: state.scores.length,
         setlistCount: state.setlists.length,
-        annotationCount: state.scores.reduce((total, score) => total + (score.bookmarks?.length ?? 0), 0)
+        bookmarkCount: state.scores.reduce((total, score) => total + (score.bookmarks?.length ?? 0), 0),
+        annotationCount: state.scores.reduce((total, score) => total + (score.annotations?.length ?? 0), 0)
       },
       data: state
     });
@@ -559,10 +1028,10 @@ export default function HomePage() {
     reader.onload = () => {
       try {
         const parsed = JSON.parse(reader.result);
-        if (parsed?.data?.scores && parsed?.data?.setlists) {
-          setState(parsed.data);
-        } else if (parsed?.scores && parsed?.setlists) {
-          setState(parsed);
+        const incoming = parsed?.data ?? parsed;
+        if (incoming?.scores || incoming?.setlists) {
+          setState(normalizeState(incoming));
+          setSyncStatus("local");
         }
       } catch {
         // Ignore malformed files.
@@ -572,30 +1041,105 @@ export default function HomePage() {
     event.target.value = "";
   }
 
+  function openFileDialog(ref) {
+    ref.current?.click();
+  }
+
+  function setLibraryView(nextView) {
+    setState((current) => ({ ...current, libraryView: nextView }));
+  }
+
+  function setSortBy(nextSort) {
+    setState((current) => ({ ...current, sortBy: nextSort }));
+  }
+
+  function setAnnotationSetting(key, value) {
+    setState((current) => ({ ...current, [key]: value }));
+  }
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        turnPage(-1);
+      }
+
+      if (event.key === "ArrowRight" || event.key === " ") {
+        event.preventDefault();
+        turnPage(1);
+      }
+
+      if (event.key === "Escape" && state.performanceMode) {
+        event.preventDefault();
+        setState((current) => ({
+          ...current,
+          performanceMode: false,
+          activeMode: "reader"
+        }));
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [state.performanceMode, selectedScore, turnPage]);
+
+  const readerBadge = selectedScore?.source?.kind
+    ? selectedScore.source.kind.toUpperCase()
+    : "LIBRARY";
+
+  const stageClasses = [
+    "stage",
+    state.displayMode,
+    state.halfPageMode ? "half-page" : "",
+    state.performanceMode ? "stage--performance" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const shellClasses = ["shell", state.performanceMode ? "shell--performance" : "", `mode-${state.activeMode}`]
+    .filter(Boolean)
+    .join(" ");
+
+  const scorePageLabel = selectedScore
+    ? `Page ${selectedScore.currentPage} of ${selectedScore.pages}`
+    : "No score selected";
+
   return (
-    <main className={performanceMode ? "page performance" : "page"} onDrop={handleDrop} onDragOver={(event) => event.preventDefault()}>
-      <section className="hero">
-        <div>
+    <main className={shellClasses} onDrop={handleDrop} onDragOver={(event) => event.preventDefault()}>
+      <header className="masthead">
+        <div className="brandBlock">
           <p className="eyebrow">Sheet Music</p>
-          <h1>Touch-first sheet music control built for library, rehearsal, and performance.</h1>
+          <h1>Score-first sheet music built for Surface, rehearsal, and stage.</h1>
           <p className="lede">
-            Local-first score management with Supabase sync, PDF and audio upload, setlists, bookmarks, and reader modes.
+            Local-first library, PDF and image import, annotations, setlists, page turns, and
+            Supabase sync when you want cloud backup.
           </p>
         </div>
 
-        <div className="heroCard">
-          <div className="metric">
-            <span>Scores</span>
-            <strong>{state.scores.length}</strong>
+        <div className="statusBlock">
+          <div className="statusGrid">
+            <div className="metric">
+              <span>Scores</span>
+              <strong>{state.scores.length}</strong>
+            </div>
+            <div className="metric">
+              <span>Setlists</span>
+              <strong>{state.setlists.length}</strong>
+            </div>
+            <div className="metric">
+              <span>Annotations</span>
+              <strong>{state.scores.reduce((total, score) => total + (score.annotations?.length ?? 0), 0)}</strong>
+            </div>
+            <div className="metric">
+              <span>Cloud</span>
+              <strong>{syncStatus}</strong>
+            </div>
           </div>
-          <div className="metric">
-            <span>Setlists</span>
-            <strong>{state.setlists.length}</strong>
-          </div>
-          <div className="metric">
-            <span>Cloud</span>
-            <strong>{syncStatus}</strong>
-          </div>
+
           <div className="authCard">
             {session?.user ? (
               <>
@@ -603,7 +1147,9 @@ export default function HomePage() {
                   <strong>{session.user.email ?? "Signed in"}</strong>
                   <p className="lede">Supabase session active.</p>
                 </div>
-                  <button type="button" onClick={signOut}>Sign out</button>
+                <button type="button" onClick={signOut}>
+                  Sign out
+                </button>
               </>
             ) : (
               <form className="stack" onSubmit={sendMagicLink}>
@@ -618,7 +1164,7 @@ export default function HomePage() {
                   <button type="submit" disabled={authBusy}>
                     Email link
                   </button>
-                  <button type="button" onClick={() => signInWithProvider("google")} disabled={authBusy}>
+                  <button type="button" onClick={() => void signInWithProvider("google")} disabled={authBusy}>
                     Google
                   </button>
                 </div>
@@ -627,310 +1173,686 @@ export default function HomePage() {
               </form>
             )}
           </div>
-          <div className="toggles">
-            <label>
+        </div>
+
+        <div className="toolbarBar">
+          <div className="modeSwitch" role="tablist" aria-label="Application mode">
+            {MODE_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={state.activeMode === option.id ? "modePill active" : "modePill"}
+                aria-pressed={state.activeMode === option.id}
+                onClick={() => toggleMode(option.id)}
+              >
+                <span>{option.label}</span>
+                <small>{option.description}</small>
+              </button>
+            ))}
+          </div>
+
+          <div className="globalActions">
+            <label className="toggleInline">
               <input
                 type="checkbox"
-                checked={theme === "dark"}
-                onChange={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
+                checked={state.theme === "dark"}
+                onChange={() =>
+                  setState((current) => ({
+                    ...current,
+                    theme: current.theme === "dark" ? "light" : "dark"
+                  }))
+                }
               />
               Dark mode
             </label>
-            <label>
-              <span>Reader mode</span>
-              <select value={displayMode} onChange={(event) => setDisplayMode(event.target.value)}>
-                <option value="single">Single page</option>
-                <option value="two-up">Two-up</option>
-                <option value="split">Split view</option>
-                <option value="continuous">Continuous</option>
-              </select>
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={performanceMode}
-                onChange={() => setPerformanceMode((value) => !value)}
-              />
-              Performance mode
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={halfPageMode}
-                onChange={() => setHalfPageMode((value) => !value)}
-              />
-              Half-page mode
-            </label>
-          </div>
-          <div className="actions">
-            <button onClick={exportBackup}>Export backup</button>
-            <label className="upload">
+            <button type="button" onClick={() => openFileDialog(pdfImportRef)}>
+              Import PDF / image
+            </button>
+            <button type="button" onClick={() => openFileDialog(audioImportRef)} disabled={!selectedScore}>
+              Attach audio
+            </button>
+            <button type="button" onClick={exportBackup}>
+              Export backup
+            </button>
+            <button type="button" onClick={() => openFileDialog(backupImportRef)}>
               Import backup
-              <input type="file" accept="application/json" onChange={importBackup} />
-            </label>
-            <label className="upload">
-              Upload PDF / audio
-              <input type="file" accept="application/pdf,audio/*" onChange={handleFileUpload} />
-            </label>
+            </button>
           </div>
         </div>
-      </section>
+      </header>
 
       <section className="workspace">
-        <aside className="panel">
+        <aside className="rail rail--library">
           <div className="panelHeader">
-            <h2>Library</h2>
+            <div>
+              <h2>Library</h2>
+              <p>Browse scores, filter, and import without leaving the reader context.</p>
+            </div>
+          </div>
+
+          <div className="stack">
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search title, composer, tags"
+              placeholder="Search title, composer, notes, tags"
             />
+
+            <div className="inlineControls">
+              <label>
+                <span>Sort</span>
+                <select value={state.sortBy} onChange={(event) => setSortBy(event.target.value)}>
+                  {SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Library view</span>
+                <select value={state.libraryView} onChange={(event) => setLibraryView(event.target.value)}>
+                  <option value="all">All scores</option>
+                  <option value="favorites">Favorites</option>
+                </select>
+              </label>
+            </div>
           </div>
 
-          <ul className="scoreList">
-            {filteredScores.map((score) => (
-              <li key={score.id}>
-                <div className="scoreItem">
-                  <button
-                    className={score.id === selectedScore?.id ? "scoreRow active" : "scoreRow"}
-                    onClick={() =>
-                      setState((current) => ({
-                        ...current,
-                        selectedScoreId: score.id,
-                        selectedBookmarkId: null
-                      }))
-                    }
-                  >
-                    <span>{score.title}</span>
-                    <small>
-                      {score.composer || "Unknown composer"} · {score.pages} pages
-                    </small>
-                  </button>
-                  <button type="button" className="scoreDelete" onClick={() => removeScore(score.id)}>
-                    Remove
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="libraryShell">
+            <ul className="scoreList">
+              {filteredScores.map((score) => (
+                <li key={score.id}>
+                  <div className="scoreCard">
+                    <button
+                      type="button"
+                      className={score.id === selectedScore?.id ? "scoreRow active" : "scoreRow"}
+                      onClick={() => openScore(score.id, "reader")}
+                    >
+                      <span className="scoreTitleRow">
+                        <strong>{score.title}</strong>
+                        <span aria-hidden="true">{score.favorite ? "★" : "☆"}</span>
+                      </span>
+                      <small>
+                        {score.composer || "Unknown composer"} · {score.pages} pages
+                      </small>
+                      <small>{score.tags.join(" · ") || "No tags"}</small>
+                    </button>
+                    <div className="scoreActions">
+                      <button type="button" onClick={() => toggleFavorite(score.id)}>
+                        {score.favorite ? "Unfavorite" : "Favorite"}
+                      </button>
+                      <button type="button" onClick={addSelectionToSetlist} disabled={!selectedSetlist || selectedScore?.id !== score.id}>
+                        Queue
+                      </button>
+                      <button
+                        type="button"
+                        className="scoreDelete"
+                        onClick={() =>
+                          setState((current) => {
+                            const nextScores = current.scores.filter((entry) => entry.id !== score.id);
+                            return {
+                              ...current,
+                              scores: nextScores,
+                              selectedScoreId: current.selectedScoreId === score.id ? nextScores[0]?.id ?? null : current.selectedScoreId,
+                              selectedBookmarkId: null,
+                              selectedAnnotationId: null,
+                              setlists: current.setlists.map((setlist) => ({
+                                ...setlist,
+                                itemIds: setlist.itemIds.filter((itemId) => itemId !== score.id)
+                              }))
+                            };
+                          })
+                        }
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
 
-          <form className="stack" onSubmit={addScore}>
-            <h3>Add score</h3>
-            <input
-              value={scoreForm.title}
-              onChange={(event) => setScoreForm({ ...scoreForm, title: event.target.value })}
-              placeholder="Title"
-            />
-            <input
-              value={scoreForm.composer}
-              onChange={(event) => setScoreForm({ ...scoreForm, composer: event.target.value })}
-              placeholder="Composer"
-            />
-            <input
-              value={scoreForm.pages}
-              onChange={(event) => setScoreForm({ ...scoreForm, pages: event.target.value })}
-              type="number"
-              min="1"
-              placeholder="Pages"
-            />
-            <input
-              value={scoreForm.tags}
-              onChange={(event) => setScoreForm({ ...scoreForm, tags: event.target.value })}
-              placeholder="Tags, comma separated"
-            />
-            <textarea
-              value={scoreForm.notes}
-              onChange={(event) => setScoreForm({ ...scoreForm, notes: event.target.value })}
-              placeholder="Notes"
-              rows={3}
-            />
-            <button type="submit">Save score</button>
-          </form>
+            {filteredScores.length === 0 ? (
+              <div className="emptyState">
+                <div>
+                  <h3>No scores yet</h3>
+                  <p>Import a PDF or image to start building the library.</p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <details className="drawer" open={state.activeMode === "library"}>
+            <summary>Add score</summary>
+            <form className="stack" onSubmit={addScore}>
+              <input
+                value={scoreForm.title}
+                onChange={(event) => setScoreForm({ ...scoreForm, title: event.target.value })}
+                placeholder="Title"
+              />
+              <input
+                value={scoreForm.composer}
+                onChange={(event) => setScoreForm({ ...scoreForm, composer: event.target.value })}
+                placeholder="Composer"
+              />
+              <div className="inlineControls">
+                <input
+                  value={scoreForm.pages}
+                  onChange={(event) => setScoreForm({ ...scoreForm, pages: event.target.value })}
+                  type="number"
+                  min="1"
+                  placeholder="Pages"
+                />
+                <input
+                  value={scoreForm.difficulty}
+                  onChange={(event) => setScoreForm({ ...scoreForm, difficulty: event.target.value })}
+                  placeholder="Difficulty"
+                />
+              </div>
+              <input
+                value={scoreForm.instrumentation}
+                onChange={(event) => setScoreForm({ ...scoreForm, instrumentation: event.target.value })}
+                placeholder="Instrumentation"
+              />
+              <input
+                value={scoreForm.tags}
+                onChange={(event) => setScoreForm({ ...scoreForm, tags: event.target.value })}
+                placeholder="Tags, comma separated"
+              />
+              <textarea
+                value={scoreForm.notes}
+                onChange={(event) => setScoreForm({ ...scoreForm, notes: event.target.value })}
+                placeholder="Notes"
+                rows={3}
+              />
+              <button type="submit">Save score</button>
+            </form>
+          </details>
+
+          <div className="hiddenInputs">
+            <input ref={pdfImportRef} type="file" accept="application/pdf,image/*,.xml,.mxl" onChange={handleFileUpload} />
+            <input ref={backupImportRef} type="file" accept="application/json" onChange={importBackup} />
+            <input ref={audioImportRef} type="file" accept="audio/*" onChange={handleFileUpload} />
+          </div>
         </aside>
 
-        <section className="panel viewer">
-          <div className="panelHeader">
+        <section className="stagePanel">
+          <div className="panelHeader stageHeader">
             <div>
+              <p className="eyebrow">{readerBadge}</p>
               <h2>{selectedScore?.title ?? "Select a score"}</h2>
-              <p>{selectedScore?.composer ?? "No score selected"}</p>
+              <p>
+                {selectedScore?.composer ?? "No score selected"} {selectedScore ? "· " + scorePageLabel : ""}
+              </p>
             </div>
-            <button onClick={addSelectionToSetlist} disabled={!selectedSetlist || (!selectedScore && !selectedBookmark)}>
-              Add to setlist
-            </button>
+            <div className="stageActions">
+              <button type="button" onClick={() => turnPage(-1)} disabled={!selectedScore}>
+                Previous
+              </button>
+              <button type="button" onClick={() => turnPage(1)} disabled={!selectedScore}>
+                Next
+              </button>
+              <button type="button" onClick={() => setState((current) => ({ ...current, performanceMode: true, activeMode: "performance" }))} disabled={!selectedScore}>
+                Performance
+              </button>
+            </div>
           </div>
 
           {selectedScore ? (
             <>
-              <div className={`viewerCanvas ${halfPageMode ? "halfPage" : ""} ${displayMode}`}>
-                {selectedScore.pdf?.dataUrl ? (
-                  <iframe className="pdfFrame" src={selectedScore.pdf.dataUrl} title={selectedScore.title} />
-                ) : (
-                  <div className="pagePreview">
-                    <span>Score preview</span>
-                    <strong>{selectedScore.title}</strong>
-                    <p>{selectedScore.notes || "No notes yet."}</p>
+              <div className={stageClasses}>
+                <div className="pageTurnZone left" aria-hidden="true" onClick={() => turnPage(-1)} />
+                <div className="pageTurnZone right" aria-hidden="true" onClick={() => turnPage(1)} />
+
+                <div className="documentViewport">
+                  {selectedScore.source?.kind === "pdf" && selectedScore.source?.dataUrl ? (
+                    <iframe className="pdfFrame" src={selectedScore.source.dataUrl} title={selectedScore.title} />
+                  ) : selectedScore.source?.kind === "image" && selectedScore.source?.dataUrl ? (
+                    <img className="imageFrame" src={selectedScore.source.dataUrl} alt={selectedScore.title} />
+                  ) : selectedScore.source?.kind === "musicxml" ? (
+                    <div className="documentEmpty">
+                      <span>MusicXML source imported</span>
+                      <strong>{selectedScore.source.name}</strong>
+                      <p>
+                        Metadata and setlist handling are live now. Engraved rendering can be wired into a
+                        later pass without changing the library model.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="documentEmpty">
+                      <span>Reader workspace</span>
+                      <strong>{selectedScore.title}</strong>
+                      <p>{selectedScore.notes || "Add a PDF or image to fill this reader surface."}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="stageFooter">
+                  <div className="pageMeta">
+                    <span>{selectedScore.pages} pages</span>
+                    <span>{selectedScore.tags.join(" · ") || "No tags"}</span>
+                    <span>{selectedScore.currentPage} / {selectedScore.pages}</span>
                   </div>
-                )}
-                <div className="pageMeta">
-                  <span>{selectedScore.pages} pages</span>
-                  <span>{selectedScore.tags.join(" · ") || "No tags"}</span>
+                  <div className="pageControls">
+                    {DISPLAY_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={state.displayMode === option.value ? "chip active" : "chip"}
+                        onClick={() => setState((current) => ({ ...current, displayMode: option.value }))}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                    <label className="toggleInline">
+                      <input
+                        type="checkbox"
+                        checked={state.halfPageMode}
+                        onChange={() =>
+                          setState((current) => ({ ...current, halfPageMode: !current.halfPageMode }))
+                        }
+                      />
+                      Half-page mode
+                    </label>
+                  </div>
                 </div>
               </div>
 
-              <div className="bookmarkGrid">
-                <div>
-                  <h3>Bookmarks</h3>
+              <div className="readerMetaGrid">
+                <section className="readerCard">
+                  <div className="panelHeader">
+                    <div>
+                      <h3>Bookmarks</h3>
+                      <p>Tap a bookmark to jump the reader and stage.</p>
+                    </div>
+                  </div>
                   <ul className="bookmarkList">
                     {selectedScore.bookmarks.map((bookmark) => (
                       <li key={bookmark.id}>
                         <button
+                          type="button"
                           className={bookmark.id === selectedBookmark?.id ? "bookmarkButton active" : "bookmarkButton"}
-                          onClick={() =>
-                            setState((current) => ({
-                              ...current,
-                              selectedBookmarkId: bookmark.id
-                            }))
-                          }
+                          onClick={() => jumpToBookmark(bookmark)}
                         >
                           <strong>{bookmark.name}</strong>
                           <span>
-                            {bookmark.kind === "item" ? "Item bookmark" : "Page bookmark"} · Pages{" "}
-                            {bookmark.startPage}
+                            {bookmark.kind === "item" ? "Item bookmark" : "Page bookmark"} · Pages {bookmark.startPage}
                             {bookmark.endPage !== bookmark.startPage ? `-${bookmark.endPage}` : ""}
                           </span>
                         </button>
+                        <div className="bookmarkActions">
+                          <button type="button" onClick={() => removeBookmark(bookmark.id)}>
+                            Remove
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ul>
-                </div>
+                  <form className="stack" onSubmit={addBookmark}>
+                    <input
+                      value={bookmarkForm.name}
+                      onChange={(event) => setBookmarkForm({ ...bookmarkForm, name: event.target.value })}
+                      placeholder="Bookmark name"
+                    />
+                    <div className="inlineControls">
+                      <select
+                        value={bookmarkForm.kind}
+                        onChange={(event) => setBookmarkForm({ ...bookmarkForm, kind: event.target.value })}
+                      >
+                        <option value="page">Page bookmark</option>
+                        <option value="item">Item bookmark</option>
+                      </select>
+                      <input
+                        value={bookmarkForm.startPage}
+                        onChange={(event) => setBookmarkForm({ ...bookmarkForm, startPage: event.target.value })}
+                        type="number"
+                        min="1"
+                        placeholder="Start page"
+                      />
+                      <input
+                        value={bookmarkForm.endPage}
+                        onChange={(event) => setBookmarkForm({ ...bookmarkForm, endPage: event.target.value })}
+                        type="number"
+                        min="1"
+                        placeholder="End page"
+                      />
+                    </div>
+                    <button type="submit">Save bookmark</button>
+                  </form>
+                </section>
 
-                <form className="stack" onSubmit={addBookmark}>
-                  <h3>Add bookmark</h3>
-                  <input
-                    value={bookmarkForm.name}
-                    onChange={(event) =>
-                      setBookmarkForm({ ...bookmarkForm, name: event.target.value })
-                    }
-                    placeholder="Bookmark name"
-                  />
-                  <select
-                    value={bookmarkForm.kind}
-                    onChange={(event) =>
-                      setBookmarkForm({ ...bookmarkForm, kind: event.target.value })
-                    }
-                  >
-                    <option value="page">Page bookmark</option>
-                    <option value="item">Item bookmark</option>
-                  </select>
-                  <input
-                    value={bookmarkForm.startPage}
-                    onChange={(event) =>
-                      setBookmarkForm({ ...bookmarkForm, startPage: event.target.value })
-                    }
-                    type="number"
-                    min="1"
-                    placeholder="Start page"
-                  />
-                  <input
-                    value={bookmarkForm.endPage}
-                    onChange={(event) =>
-                      setBookmarkForm({ ...bookmarkForm, endPage: event.target.value })
-                    }
-                    type="number"
-                    min="1"
-                    placeholder="End page"
-                  />
-                  <button type="submit">Save bookmark</button>
-                </form>
-              </div>
+                <section className="readerCard">
+                  <div className="panelHeader">
+                    <div>
+                      <h3>Annotations</h3>
+                      <p>Persistent note, markup, and layer states for the current score.</p>
+                    </div>
+                  </div>
 
-              <div className="stack">
-                <h3>Audio tracks</h3>
-                <ul className="bookmarkList">
-                  {(selectedScore.audioTracks ?? []).map((track) => (
-                    <li key={track.id}>
-                      <strong>{track.name}</strong>
-                      <span>Attached audio</span>
-                    </li>
-                  ))}
-                </ul>
+                  <div className="annotationPalette">
+                    <div className="pillGroup">
+                      {ANNOTATION_TOOLS.map((tool) => (
+                        <button
+                          key={tool.value}
+                          type="button"
+                          className={state.annotationTool === tool.value ? "chip active" : "chip"}
+                          onClick={() => setAnnotationSetting("annotationTool", tool.value)}
+                        >
+                          {tool.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="pillGroup">
+                      {ANNOTATION_COLORS.map((color) => (
+                        <button
+                          key={color.value}
+                          type="button"
+                          className={state.annotationColor === color.value ? "chip active" : "chip"}
+                          onClick={() => setAnnotationSetting("annotationColor", color.value)}
+                        >
+                          {color.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="pillGroup">
+                      {ANNOTATION_THICKNESSES.map((thickness) => (
+                        <button
+                          key={thickness.value}
+                          type="button"
+                          className={state.annotationThickness === thickness.value ? "chip active" : "chip"}
+                          onClick={() => setAnnotationSetting("annotationThickness", thickness.value)}
+                        >
+                          {thickness.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <form className="stack" onSubmit={addAnnotation}>
+                    <input
+                      value={annotationForm.title}
+                      onChange={(event) => setAnnotationForm({ ...annotationForm, title: event.target.value })}
+                      placeholder="Annotation title"
+                    />
+                    <div className="inlineControls">
+                      <input
+                        value={annotationForm.page}
+                        onChange={(event) => setAnnotationForm({ ...annotationForm, page: event.target.value })}
+                        type="number"
+                        min="1"
+                        placeholder="Page"
+                      />
+                      <button type="submit">Add annotation</button>
+                    </div>
+                    <textarea
+                      value={annotationForm.note}
+                      onChange={(event) => setAnnotationForm({ ...annotationForm, note: event.target.value })}
+                      placeholder="Annotation notes"
+                      rows={3}
+                    />
+                  </form>
+
+                  <ul className="bookmarkList">
+                    {selectedScore.annotations.map((annotation) => (
+                      <li key={annotation.id}>
+                        <button
+                          type="button"
+                          className={annotation.id === selectedAnnotation?.id ? "bookmarkButton active" : "bookmarkButton"}
+                          onClick={() =>
+                            setState((current) => ({
+                              ...current,
+                              selectedAnnotationId: annotation.id,
+                              activeMode: "annotation"
+                            }))
+                          }
+                        >
+                          <strong>{annotation.title}</strong>
+                          <span>
+                            {annotation.tool} · Page {annotation.page} · {annotation.color} · {annotation.thickness}
+                          </span>
+                          {annotation.note ? <span>{annotation.note}</span> : null}
+                        </button>
+                        <div className="bookmarkActions">
+                          <button type="button" onClick={() => removeAnnotation(annotation.id)}>
+                            Remove
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               </div>
             </>
           ) : (
-            <div className="emptyState">Choose a score to open the performance workspace.</div>
+            <div className="emptyStage">
+              <h3>No score selected</h3>
+              <p>Import a PDF, image, or MusicXML file to open the reader surface.</p>
+            </div>
           )}
         </section>
 
-        <aside className="panel">
-          <div className="panelHeader">
-            <h2>Setlists</h2>
-          </div>
+        <aside className="rail rail--detail">
+          {state.activeMode === "setlists" ? (
+            <section className="detailStack">
+              <div className="panelHeader">
+                <div>
+                  <h2>Setlists</h2>
+                  <p>Sequence scores, jump to bookmarks, and launch performance mode.</p>
+                </div>
+              </div>
 
-          <ul className="setlistList">
-            {state.setlists.map((setlist) => (
-              <li key={setlist.id}>
-                <button
-                  className={setlist.id === selectedSetlist?.id ? "scoreRow active" : "scoreRow"}
-                  onClick={() =>
-                    setState((current) => ({
-                      ...current,
-                      selectedSetlistId: setlist.id
-                    }))
-                  }
-                >
-                  <span>{setlist.name}</span>
-                  <small>{setlist.itemIds.length} items</small>
-                </button>
-              </li>
-            ))}
-          </ul>
-
-          <form className="stack" onSubmit={addSetlist}>
-            <h3>New setlist</h3>
-            <input
-              value={setlistName}
-              onChange={(event) => setSetlistName(event.target.value)}
-              placeholder="Setlist name"
-            />
-            <button type="submit">Create setlist</button>
-          </form>
-
-          <div className="setlistDetails">
-            <h3>{selectedSetlist?.name ?? "No setlist selected"}</h3>
-            <ul className="bookmarkList">
-              {(selectedSetlist?.itemIds ?? []).map((id) => {
-                if (id.startsWith("bookmark:")) {
-                  const bookmarkId = id.slice("bookmark:".length);
-                  const bookmark = state.scores
-                    .flatMap((entry) => entry.bookmarks)
-                    .find((entry) => entry.id === bookmarkId);
-
-                  if (!bookmark) {
-                    return null;
-                  }
-
-                  return (
-                    <li key={id}>
-                      <strong>{bookmark.name}</strong>
-                      <span>Item bookmark</span>
-                    </li>
-                  );
-                }
-
-                const score = state.scores.find((entry) => entry.id === id);
-                if (!score) {
-                  return null;
-                }
-
-                return (
-                  <li key={id}>
-                    <strong>{score.title}</strong>
-                    <span>{score.composer || "Unknown composer"}</span>
+              <ul className="setlistList">
+                {state.setlists.map((setlist) => (
+                  <li key={setlist.id}>
+                    <div className={setlist.id === selectedSetlist?.id ? "setlistCard active" : "setlistCard"}>
+                      <button type="button" className="scoreRow" onClick={() => setState((current) => ({ ...current, selectedSetlistId: setlist.id, activeMode: "setlists" }))}>
+                        <strong>{setlist.name}</strong>
+                        <small>{setlist.itemIds.length} items</small>
+                        {setlist.notes ? <small>{setlist.notes}</small> : null}
+                      </button>
+                      <div className="scoreActions">
+                        <button type="button" onClick={() => startPerformanceFromSetlist(setlist.id)}>
+                          Start performance
+                        </button>
+                        <button type="button" onClick={() => duplicateSetlist(setlist.id)}>
+                          Duplicate
+                        </button>
+                        <button type="button" className="scoreDelete" onClick={() => removeSetlist(setlist.id)}>
+                          Remove
+                        </button>
+                      </div>
+                    </div>
                   </li>
-                );
-              })}
-            </ul>
-          </div>
+                ))}
+              </ul>
+
+              <form className="stack" onSubmit={createSetlist}>
+                <h3>New setlist</h3>
+                <input
+                  value={setlistForm.name}
+                  onChange={(event) => setSetlistForm({ ...setlistForm, name: event.target.value })}
+                  placeholder="Setlist name"
+                />
+                <textarea
+                  value={setlistForm.notes}
+                  onChange={(event) => setSetlistForm({ ...setlistForm, notes: event.target.value })}
+                  placeholder="Setlist notes"
+                  rows={3}
+                />
+                <button type="submit">Create setlist</button>
+              </form>
+
+              <div className="readerCard">
+                <h3>{selectedSetlist?.name ?? "Select a setlist"}</h3>
+                <ul className="setlistFlow">
+                  {(selectedSetlist?.itemIds ?? []).map((itemId) => {
+                    const resolved = resolveSetlistItem(state, itemId);
+                    if (!resolved) {
+                      return null;
+                    }
+
+                    if (resolved.type === "bookmark") {
+                      return (
+                        <li key={itemId}>
+                          <button type="button" className="bookmarkButton" onClick={() => openSetlistItem(itemId)}>
+                            <strong>{resolved.bookmark.name}</strong>
+                            <span>{resolved.score.title} · bookmark</span>
+                          </button>
+                          <div className="bookmarkActions">
+                            <button type="button" onClick={() => moveSetlistItem(itemId, -1)}>
+                              Up
+                            </button>
+                            <button type="button" onClick={() => moveSetlistItem(itemId, 1)}>
+                              Down
+                            </button>
+                            <button type="button" onClick={() => removeSetlistItem(itemId)}>
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    }
+
+                    return (
+                      <li key={itemId}>
+                        <button type="button" className="bookmarkButton" onClick={() => openSetlistItem(itemId)}>
+                          <strong>{resolved.score.title}</strong>
+                          <span>{resolved.score.composer || "Unknown composer"} · {resolved.score.pages} pages</span>
+                        </button>
+                        <div className="bookmarkActions">
+                          <button type="button" onClick={() => moveSetlistItem(itemId, -1)}>
+                            Up
+                          </button>
+                          <button type="button" onClick={() => moveSetlistItem(itemId, 1)}>
+                            Down
+                          </button>
+                          <button type="button" onClick={() => removeSetlistItem(itemId)}>
+                            Remove
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {!selectedSetlist?.itemIds?.length ? <p className="mutedText">Add the current score or bookmark from the reader into the active setlist.</p> : null}
+                <button type="button" onClick={addSelectionToSetlist} disabled={!selectedSetlist || (!selectedScore && !selectedBookmark)}>
+                  Add selected score or bookmark
+                </button>
+              </div>
+            </section>
+          ) : (
+            <section className="detailStack">
+              <div className="panelHeader">
+                <div>
+                  <h2>Score details</h2>
+                  <p>Metadata lives here so the reader stays clean.</p>
+                </div>
+              </div>
+
+              {selectedScore ? (
+                <>
+                  <div className="readerCard">
+                    <div className="scoreMetaHeader">
+                      <div>
+                        <strong>{selectedScore.title}</strong>
+                        <p>{selectedScore.composer || "Unknown composer"}</p>
+                      </div>
+                      <button type="button" onClick={() => toggleFavorite(selectedScore.id)}>
+                        {selectedScore.favorite ? "Unfavorite" : "Favorite"}
+                      </button>
+                    </div>
+                    <div className="inlineControls">
+                      <input
+                        value={selectedScore.title}
+                        onChange={(event) => updateScore(selectedScore.id, { title: event.target.value })}
+                        placeholder="Title"
+                      />
+                      <input
+                        value={selectedScore.composer}
+                        onChange={(event) => updateScore(selectedScore.id, { composer: event.target.value })}
+                        placeholder="Composer"
+                      />
+                    </div>
+                    <div className="inlineControls">
+                      <input
+                        type="number"
+                        min="1"
+                        value={selectedScore.pages}
+                        onChange={(event) => updateScore(selectedScore.id, { pages: Number(event.target.value) || 1 })}
+                        placeholder="Pages"
+                      />
+                      <input
+                        value={selectedScore.instrumentation}
+                        onChange={(event) => updateScore(selectedScore.id, { instrumentation: event.target.value })}
+                        placeholder="Instrumentation"
+                      />
+                    </div>
+                    <input
+                      value={selectedScore.difficulty}
+                      onChange={(event) => updateScore(selectedScore.id, { difficulty: event.target.value })}
+                      placeholder="Difficulty"
+                    />
+                    <input
+                      value={selectedScore.tags.join(", ")}
+                      onChange={(event) =>
+                        updateScore(selectedScore.id, {
+                          tags: event.target.value
+                            .split(",")
+                            .map((item) => item.trim())
+                            .filter(Boolean)
+                        })
+                      }
+                      placeholder="Tags, comma separated"
+                    />
+                    <textarea
+                      rows={4}
+                      value={selectedScore.notes}
+                      onChange={(event) => updateScore(selectedScore.id, { notes: event.target.value })}
+                      placeholder="Notes"
+                    />
+                  </div>
+
+                  <div className="readerCard">
+                    <h3>Audio tracks</h3>
+                    <ul className="bookmarkList">
+                      {(selectedScore.audioTracks ?? []).map((track) => (
+                        <li key={track.id}>
+                          <strong>{track.name}</strong>
+                          <span>Attached audio</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </>
+              ) : (
+                <div className="emptyStage">
+                  <p>Select a score to edit its metadata.</p>
+                </div>
+              )}
+
+              {state.activeMode === "performance" ? (
+                <div className="readerCard performanceDock">
+                  <div className="panelHeader">
+                    <div>
+                      <h3>Performance mode</h3>
+                      <p>Minimal chrome with large page-turn targets.</p>
+                    </div>
+                  </div>
+                  <div className="globalActions">
+                    <button type="button" onClick={() => setState((current) => ({ ...current, performanceMode: !current.performanceMode }))}>
+                      {state.performanceMode ? "Leave performance" : "Enter performance"}
+                    </button>
+                    <button type="button" onClick={() => setState((current) => ({ ...current, halfPageMode: !current.halfPageMode }))}>
+                      Half-page {state.halfPageMode ? "on" : "off"}
+                    </button>
+                    <button type="button" onClick={() => setState((current) => ({ ...current, displayMode: "single" }))}>
+                      Reset layout
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          )}
         </aside>
       </section>
     </main>
