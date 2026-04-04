@@ -34,7 +34,7 @@ const INITIAL_STATE = {
   selectedScoreId: "score-1",
   selectedSetlistId: "setlist-1",
   selectedBookmarkId: null,
-  theme: "light",
+  theme: "dark",
   displayMode: "single"
 };
 
@@ -67,7 +67,7 @@ export default function HomePage() {
   const [query, setQuery] = useState("");
   const [performanceMode, setPerformanceMode] = useState(false);
   const [halfPageMode, setHalfPageMode] = useState(false);
-  const [theme, setTheme] = useState("light");
+  const [theme, setTheme] = useState("dark");
   const [displayMode, setDisplayMode] = useState("single");
   const [syncStatus, setSyncStatus] = useState("loading");
   const [session, setSession] = useState(null);
@@ -122,6 +122,8 @@ export default function HomePage() {
     const savedTheme = window.localStorage.getItem(THEME_KEY);
     if (savedTheme === "light" || savedTheme === "dark") {
       setTheme(savedTheme);
+    } else {
+      setTheme("dark");
     }
 
     async function loadRemoteState() {
