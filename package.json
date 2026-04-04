@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/write-routes-manifest.mjs",
     "start": "next start",
     "validate:spec": "node scripts/validate-spec.mjs",
     "desktop:start": "electron .",
