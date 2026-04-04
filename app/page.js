@@ -235,7 +235,10 @@ export default function HomePage() {
   const [query, setQuery] = useState("");
   const [syncStatus, setSyncStatus] = useState("loading");
   const [session, setSession] = useState(null);
+  const [authMode, setAuthMode] = useState("sign-in");
   const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
@@ -622,7 +625,7 @@ export default function HomePage() {
     }
   }
 
-  async function sendMagicLink(event) {
+  async function signInWithPassword(event) {
     event.preventDefault();
     setAuthError("");
     setAuthMessage("");
@@ -637,9 +640,55 @@ export default function HomePage() {
       return;
     }
 
+    if (!authPassword.trim()) {
+      setAuthError("Enter your password.");
+      return;
+    }
+
     setAuthBusy(true);
-    const { error } = await supabaseBrowser.auth.signInWithOtp({
+    const { error } = await supabaseBrowser.auth.signInWithPassword({
       email: authEmail.trim(),
+      password: authPassword
+    });
+    setAuthBusy(false);
+
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+
+    setAuthMessage("Signed in.");
+  }
+
+  async function signUpWithPassword(event) {
+    event.preventDefault();
+    setAuthError("");
+    setAuthMessage("");
+
+    if (!supabaseBrowser) {
+      setAuthError("Supabase auth is not configured.");
+      return;
+    }
+
+    if (!authEmail.trim()) {
+      setAuthError("Enter an email address.");
+      return;
+    }
+
+    if (!authPassword.trim()) {
+      setAuthError("Enter a password.");
+      return;
+    }
+
+    if (authPassword !== authConfirmPassword) {
+      setAuthError("Passwords do not match.");
+      return;
+    }
+
+    setAuthBusy(true);
+    const { error } = await supabaseBrowser.auth.signUp({
+      email: authEmail.trim(),
+      password: authPassword,
       options: {
         emailRedirectTo: window.location.origin
       }
@@ -651,7 +700,38 @@ export default function HomePage() {
       return;
     }
 
-    setAuthMessage("Check your email for the login link.");
+    setAuthMessage("Account created. Sign in if email confirmation is required.");
+    setAuthMode("sign-in");
+  }
+
+  async function requestPasswordReset(event) {
+    event.preventDefault();
+    setAuthError("");
+    setAuthMessage("");
+
+    if (!supabaseBrowser) {
+      setAuthError("Supabase auth is not configured.");
+      return;
+    }
+
+    if (!authEmail.trim()) {
+      setAuthError("Enter the email address for the reset link.");
+      return;
+    }
+
+    setAuthBusy(true);
+    const { error } = await supabaseBrowser.auth.resetPasswordForEmail(authEmail.trim(), {
+      redirectTo: `${window.location.origin}/?reset=1`
+    });
+    setAuthBusy(false);
+
+    if (error) {
+      setAuthError(error.message);
+      return;
+    }
+
+    setAuthMessage("Password reset email sent.");
+    setAuthMode("sign-in");
   }
 
   async function signInWithProvider(provider) {
@@ -763,6 +843,27 @@ export default function HomePage() {
         return {
           ...setlist,
           itemIds: [...setlist.itemIds, entryId]
+        };
+      })
+    }));
+  }
+
+  function addScoreToSetlist(scoreId) {
+    if (!selectedSetlist) {
+      setAuthError("");
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      setlists: current.setlists.map((setlist) => {
+        if (setlist.id !== selectedSetlist.id || setlist.itemIds.includes(scoreId)) {
+          return setlist;
+        }
+
+        return {
+          ...setlist,
+          itemIds: [...setlist.itemIds, scoreId]
         };
       })
     }));
@@ -1152,25 +1253,84 @@ export default function HomePage() {
                 </button>
               </>
             ) : (
-              <form className="stack" onSubmit={sendMagicLink}>
-                <h3>Sign in</h3>
-                <input
-                  type="email"
-                  value={authEmail}
-                  onChange={(event) => setAuthEmail(event.target.value)}
-                  placeholder="Email address"
-                />
-                <div className="authButtons">
-                  <button type="submit" disabled={authBusy}>
-                    Email link
+              <div className="stack">
+                <div className="authTabs" role="tablist" aria-label="Authentication mode">
+                  <button
+                    type="button"
+                    className={authMode === "sign-in" ? "chip active" : "chip"}
+                    onClick={() => setAuthMode("sign-in")}
+                  >
+                    Sign in
                   </button>
-                  <button type="button" onClick={() => void signInWithProvider("google")} disabled={authBusy}>
-                    Google
+                  <button
+                    type="button"
+                    className={authMode === "sign-up" ? "chip active" : "chip"}
+                    onClick={() => setAuthMode("sign-up")}
+                  >
+                    Create account
+                  </button>
+                  <button
+                    type="button"
+                    className={authMode === "reset" ? "chip active" : "chip"}
+                    onClick={() => setAuthMode("reset")}
+                  >
+                    Reset password
                   </button>
                 </div>
-                {authMessage ? <p className="successText">{authMessage}</p> : null}
-                {authError ? <p className="errorText">{authError}</p> : null}
-              </form>
+
+                <form
+                  className="stack"
+                  onSubmit={
+                    authMode === "sign-up"
+                      ? signUpWithPassword
+                      : authMode === "reset"
+                        ? requestPasswordReset
+                        : signInWithPassword
+                  }
+                >
+                  <h3>{authMode === "sign-up" ? "Create account" : authMode === "reset" ? "Reset password" : "Sign in"}</h3>
+                  <input
+                    type="email"
+                    value={authEmail}
+                    onChange={(event) => setAuthEmail(event.target.value)}
+                    placeholder="Email address"
+                  />
+                  {authMode !== "reset" ? (
+                    <>
+                      <input
+                        type="password"
+                        value={authPassword}
+                        onChange={(event) => setAuthPassword(event.target.value)}
+                        placeholder="Password"
+                      />
+                      {authMode === "sign-up" ? (
+                        <input
+                          type="password"
+                          value={authConfirmPassword}
+                          onChange={(event) => setAuthConfirmPassword(event.target.value)}
+                          placeholder="Confirm password"
+                        />
+                      ) : null}
+                    </>
+                  ) : null}
+                  <div className="authButtons">
+                    {authMode === "reset" ? (
+                      <button type="submit" disabled={authBusy}>
+                        Send reset email
+                      </button>
+                    ) : (
+                      <button type="submit" disabled={authBusy}>
+                        {authMode === "sign-up" ? "Create account" : "Sign in"}
+                      </button>
+                    )}
+                    <button type="button" onClick={() => void signInWithProvider("google")} disabled={authBusy}>
+                      Google
+                    </button>
+                  </div>
+                  {authMessage ? <p className="successText">{authMessage}</p> : null}
+                  {authError ? <p className="errorText">{authError}</p> : null}
+                </form>
+              </div>
             )}
           </div>
         </div>
@@ -1278,11 +1438,11 @@ export default function HomePage() {
                       <small>{score.tags.join(" · ") || "No tags"}</small>
                     </button>
                     <div className="scoreActions">
-                      <button type="button" onClick={() => toggleFavorite(score.id)}>
+                    <button type="button" onClick={() => toggleFavorite(score.id)}>
                         {score.favorite ? "Unfavorite" : "Favorite"}
                       </button>
-                      <button type="button" onClick={addSelectionToSetlist} disabled={!selectedSetlist || selectedScore?.id !== score.id}>
-                        Queue
+                      <button type="button" onClick={() => addScoreToSetlist(score.id)} disabled={!selectedSetlist}>
+                        Queue to setlist
                       </button>
                       <button
                         type="button"
@@ -1401,8 +1561,8 @@ export default function HomePage() {
           {selectedScore ? (
             <>
               <div className={stageClasses}>
-                <div className="pageTurnZone left" aria-hidden="true" onClick={() => turnPage(-1)} />
-                <div className="pageTurnZone right" aria-hidden="true" onClick={() => turnPage(1)} />
+                <button type="button" className="pageTurnZone left" aria-label="Previous page" onClick={() => turnPage(-1)} />
+                <button type="button" className="pageTurnZone right" aria-label="Next page" onClick={() => turnPage(1)} />
 
                 <div className="documentViewport">
                   {selectedScore.source?.kind === "pdf" && selectedScore.source?.dataUrl ? (

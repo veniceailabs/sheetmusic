@@ -249,6 +249,7 @@ h3 {
 }
 
 .authButtons,
+.authTabs,
 .globalActions,
 .stageActions,
 .scoreActions,
@@ -259,6 +260,10 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.authTabs {
+  align-items: center;
 }
 
 .toolbarBar {
@@ -525,6 +530,17 @@ h3 {
   bottom: 0;
   width: 18%;
   z-index: 3;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  color: transparent;
+}
+
+.pageTurnZone:hover {
+  transform: none;
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
 
 .pageTurnZone.left {
